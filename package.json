@@ -1,6 +1,6 @@
 {
   "name": "watermelon-workbench",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A cozy writing workbench for novelists: focused editing, chapter navigation, local name generator, time-machine backups, and live writing stats.",
   "main": "main.js",
   "scripts": {

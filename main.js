@@ -48,8 +48,7 @@ var WatermelonSettingTab = class extends import_obsidian.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian.Setting(containerEl).setName("Watermelon Workbench").setHeading();
-    new import_obsidian.Setting(containerEl).setName("\u4FDD\u6301 Markdown \u6587\u4EF6\u4E0D\u53D8\uFF0C\u53EA\u8C03\u6574\u5199\u4F5C\u5DE5\u4F5C\u53F0\u4E2D\u7684\u5C55\u793A\u4E0E\u8F85\u52A9\u529F\u80FD\u3002").setClass("wm-settings-description");
+    new import_obsidian.Setting(containerEl).setName("Writing workbench").setDesc("\u4FDD\u6301 Markdown \u6587\u4EF6\u4E0D\u53D8\uFF0C\u53EA\u8C03\u6574\u5199\u4F5C\u5DE5\u4F5C\u53F0\u4E2D\u7684\u5C55\u793A\u4E0E\u8F85\u52A9\u529F\u80FD\u3002").setHeading();
     new import_obsidian.Setting(containerEl).setName("Manuscript root").setDesc("Only used as an optional ceiling for your novel files. Leave empty to derive scope from the currently opened note.").addText((text) => {
       text.setPlaceholder("Novels/My Project").setValue(this.plugin.settings.manuscriptRoot).onChange(async (value) => {
         this.plugin.settings.manuscriptRoot = normalizeRootInput(value);
