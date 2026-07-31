@@ -1,11 +1,20 @@
 import { normalizePath, TFile, TFolder } from "obsidian";
 import type WatermelonWorkbenchPlugin from "../main";
 
+export type TimeMachineSnapshotKind = "auto" | "daily" | "manual" | "legacy";
+
 export interface TimeMachineSnapshot {
   path: string;
   createdAt: number;
   wordCount: number;
   originalPath: string;
+  kind: TimeMachineSnapshotKind;
+}
+
+export interface TimeMachineSnapshotState {
+  wordCount: number;
+  createdAt: number;
+  created: boolean;
 }
 
 export interface SnapshotDiffLine {
@@ -14,38 +23,84 @@ export interface SnapshotDiffLine {
 }
 
 const BACKUP_FOLDER_NAME = "备份";
-const SNAPSHOT_INTERVAL_WORDS = 100;
+const AUTO_SNAPSHOT_INTERVAL_WORDS = 500;
+const AUTO_SNAPSHOT_MIN_INTERVAL_MS = 2 * 60 * 1000;
+const MAX_AUTO_SNAPSHOTS_PER_FILE = 30;
 
 export async function maybeCreateTimeMachineSnapshot(
   plugin: WatermelonWorkbenchPlugin,
   file: TFile | null,
   currentText: string,
   lastSnapshotWords: number,
-): Promise<number> {
+  lastSnapshotCreatedAt: number,
+): Promise<TimeMachineSnapshotState> {
+  const currentState = {
+    wordCount: lastSnapshotWords,
+    createdAt: lastSnapshotCreatedAt,
+    created: false,
+  };
+
   if (!file) {
-    return lastSnapshotWords;
+    return currentState;
   }
 
   const currentWords = countWritingCharacters(currentText);
-  if (currentWords <= 0 || currentWords - lastSnapshotWords < SNAPSHOT_INTERVAL_WORDS) {
-    return lastSnapshotWords;
+  if (currentWords <= 0) {
+    return currentState;
   }
 
-  await createTimeMachineSnapshot(plugin, file, currentText, currentWords);
-  return currentWords;
+  const now = Date.now();
+  const today = formatDateStamp(now);
+  if (!(await hasDailySnapshotForDate(plugin, file, today))) {
+    const dailySnapshot = await createTimeMachineSnapshot(plugin, file, currentText, {
+      kind: "daily",
+      wordCount: currentWords,
+      createdAt: now,
+    });
+    return {
+      wordCount: dailySnapshot.wordCount,
+      createdAt: dailySnapshot.createdAt,
+      created: true,
+    };
+  }
+
+  if (currentWords - lastSnapshotWords < AUTO_SNAPSHOT_INTERVAL_WORDS) {
+    return currentState;
+  }
+
+  if (lastSnapshotCreatedAt > 0 && now - lastSnapshotCreatedAt < AUTO_SNAPSHOT_MIN_INTERVAL_MS) {
+    return currentState;
+  }
+
+  const autoSnapshot = await createTimeMachineSnapshot(plugin, file, currentText, {
+    kind: "auto",
+    wordCount: currentWords,
+    createdAt: now,
+  });
+  await pruneOldAutoSnapshots(plugin, file);
+
+  return {
+    wordCount: autoSnapshot.wordCount,
+    createdAt: autoSnapshot.createdAt,
+    created: true,
+  };
 }
 
 export async function createTimeMachineSnapshot(
   plugin: WatermelonWorkbenchPlugin,
   file: TFile,
   text: string,
-  wordCount = countWritingCharacters(text),
+  options: {
+    kind?: Exclude<TimeMachineSnapshotKind, "legacy">;
+    wordCount?: number;
+    createdAt?: number;
+  } = {},
 ): Promise<TimeMachineSnapshot> {
-  const folderPath = getBackupFolderPath(file);
-  await ensureFolder(plugin, folderPath);
-
-  const createdAt = Date.now();
-  const snapshotPath = await getUniqueSnapshotPath(plugin, folderPath, file, createdAt, wordCount);
+  const folderPath = await ensureChapterBackupFolder(plugin, file);
+  const createdAt = options.createdAt ?? Date.now();
+  const wordCount = options.wordCount ?? countWritingCharacters(text);
+  const kind = options.kind ?? "manual";
+  const snapshotPath = await getUniqueSnapshotPath(plugin, folderPath, kind, createdAt, wordCount);
   await plugin.app.vault.create(snapshotPath, text);
 
   return {
@@ -53,12 +108,17 @@ export async function createTimeMachineSnapshot(
     createdAt,
     wordCount,
     originalPath: file.path,
+    kind,
   };
 }
 
 export function getBackupFolderPath(file: TFile): string {
   const parentPath = file.parent?.path;
   return normalizePath(parentPath && parentPath !== "/" ? `${parentPath}/${BACKUP_FOLDER_NAME}` : BACKUP_FOLDER_NAME);
+}
+
+export function getChapterBackupFolderPath(file: TFile): string {
+  return normalizePath(`${getBackupFolderPath(file)}/${sanitizeFileName(file.basename)}`);
 }
 
 export function countWritingCharacters(text: string): number {
@@ -73,22 +133,9 @@ export async function listTimeMachineSnapshots(
     return [];
   }
 
-  const folder = plugin.app.vault.getAbstractFileByPath(getBackupFolderPath(file));
-  if (!(folder instanceof TFolder)) {
-    return [];
-  }
-
-  const prefix = `${sanitizeFileName(file.basename)}__`;
-  const suffix = ".md";
-  return folder.children
-    .filter((child): child is TFile => child instanceof TFile && child.name.startsWith(prefix) && child.name.endsWith(suffix))
-    .map((snapshot) => ({
-      path: snapshot.path,
-      createdAt: snapshot.stat.ctime,
-      wordCount: readWordCountFromSnapshotName(snapshot.basename),
-      originalPath: file.path,
-    }))
-    .sort((left, right) => right.createdAt - left.createdAt);
+  return [...listLegacySnapshots(plugin, file), ...listChapterSnapshots(plugin, file)].sort(
+    (left, right) => right.createdAt - left.createdAt,
+  );
 }
 
 export async function buildSnapshotDiff(
@@ -147,6 +194,15 @@ export function diffLines(previousText: string, currentText: string): SnapshotDi
   return result;
 }
 
+async function ensureChapterBackupFolder(plugin: WatermelonWorkbenchPlugin, file: TFile): Promise<string> {
+  const rootFolderPath = getBackupFolderPath(file);
+  await ensureFolder(plugin, rootFolderPath);
+
+  const chapterFolderPath = getChapterBackupFolderPath(file);
+  await ensureFolder(plugin, chapterFolderPath);
+  return chapterFolderPath;
+}
+
 async function ensureFolder(plugin: WatermelonWorkbenchPlugin, folderPath: string): Promise<void> {
   const existing = plugin.app.vault.getAbstractFileByPath(folderPath);
   if (existing) {
@@ -156,15 +212,77 @@ async function ensureFolder(plugin: WatermelonWorkbenchPlugin, folderPath: strin
   await plugin.app.vault.createFolder(folderPath);
 }
 
+function listLegacySnapshots(plugin: WatermelonWorkbenchPlugin, file: TFile): TimeMachineSnapshot[] {
+  const folder = plugin.app.vault.getAbstractFileByPath(getBackupFolderPath(file));
+  if (!(folder instanceof TFolder)) {
+    return [];
+  }
+
+  const prefix = `${sanitizeFileName(file.basename)}__`;
+  return folder.children
+    .filter((child): child is TFile => child instanceof TFile && child.name.startsWith(prefix) && child.name.endsWith(".md"))
+    .map((snapshot) => ({
+      path: snapshot.path,
+      createdAt: snapshot.stat.ctime,
+      wordCount: readWordCountFromSnapshotName(snapshot.basename),
+      originalPath: file.path,
+      kind: "legacy",
+    }));
+}
+
+function listChapterSnapshots(plugin: WatermelonWorkbenchPlugin, file: TFile): TimeMachineSnapshot[] {
+  const folder = plugin.app.vault.getAbstractFileByPath(getChapterBackupFolderPath(file));
+  if (!(folder instanceof TFolder)) {
+    return [];
+  }
+
+  return folder.children
+    .filter((child): child is TFile => child instanceof TFile && child.extension === "md")
+    .map((snapshot) => ({
+      path: snapshot.path,
+      createdAt: snapshot.stat.ctime,
+      wordCount: readWordCountFromSnapshotName(snapshot.basename),
+      originalPath: file.path,
+      kind: readSnapshotKindFromName(snapshot.basename),
+    }));
+}
+
+async function hasDailySnapshotForDate(plugin: WatermelonWorkbenchPlugin, file: TFile, dateStamp: string): Promise<boolean> {
+  const folder = plugin.app.vault.getAbstractFileByPath(getChapterBackupFolderPath(file));
+  if (!(folder instanceof TFolder)) {
+    return false;
+  }
+
+  return folder.children.some(
+    (child) => child instanceof TFile && child.basename.startsWith(`daily__${dateStamp}__`) && child.extension === "md",
+  );
+}
+
+async function pruneOldAutoSnapshots(plugin: WatermelonWorkbenchPlugin, file: TFile): Promise<void> {
+  const folder = plugin.app.vault.getAbstractFileByPath(getChapterBackupFolderPath(file));
+  if (!(folder instanceof TFolder)) {
+    return;
+  }
+
+  const autoSnapshots = folder.children
+    .filter((child): child is TFile => child instanceof TFile && child.basename.startsWith("auto__") && child.extension === "md")
+    .sort((left, right) => right.stat.ctime - left.stat.ctime);
+
+  const expiredSnapshots = autoSnapshots.slice(MAX_AUTO_SNAPSHOTS_PER_FILE);
+  for (const snapshot of expiredSnapshots) {
+    await plugin.app.vault.delete(snapshot);
+  }
+}
+
 async function getUniqueSnapshotPath(
   plugin: WatermelonWorkbenchPlugin,
   folderPath: string,
-  file: TFile,
+  kind: Exclude<TimeMachineSnapshotKind, "legacy">,
   createdAt: number,
   wordCount: number,
 ): Promise<string> {
-  const timestamp = formatTimestamp(createdAt);
-  const baseName = `${sanitizeFileName(file.basename)}__${timestamp}__${wordCount}字`;
+  const timestamp = kind === "daily" ? formatDateStamp(createdAt) : formatTimestamp(createdAt);
+  const baseName = `${kind}__${timestamp}__${wordCount}字`;
   let snapshotPath = normalizePath(`${folderPath}/${baseName}.md`);
   let counter = 2;
 
@@ -181,10 +299,32 @@ function readWordCountFromSnapshotName(name: string): number {
   return match ? Number(match[1]) : 0;
 }
 
+function readSnapshotKindFromName(name: string): TimeMachineSnapshotKind {
+  if (name.startsWith("auto__")) {
+    return "auto";
+  }
+
+  if (name.startsWith("daily__")) {
+    return "daily";
+  }
+
+  if (name.startsWith("manual__")) {
+    return "manual";
+  }
+
+  return "legacy";
+}
+
 function formatTimestamp(timestamp: number): string {
   const date = new Date(timestamp);
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
+
+function formatDateStamp(timestamp: number): string {
+  const date = new Date(timestamp);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
 }
 
 function sanitizeFileName(name: string): string {

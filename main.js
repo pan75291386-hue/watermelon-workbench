@@ -404,34 +404,75 @@ function pick(items) {
 // src/services/TimeMachineService.ts
 var import_obsidian2 = require("obsidian");
 var BACKUP_FOLDER_NAME = "\u5907\u4EFD";
-var SNAPSHOT_INTERVAL_WORDS = 100;
-async function maybeCreateTimeMachineSnapshot(plugin, file, currentText, lastSnapshotWords) {
+var AUTO_SNAPSHOT_INTERVAL_WORDS = 500;
+var AUTO_SNAPSHOT_MIN_INTERVAL_MS = 2 * 60 * 1e3;
+var MAX_AUTO_SNAPSHOTS_PER_FILE = 30;
+async function maybeCreateTimeMachineSnapshot(plugin, file, currentText, lastSnapshotWords, lastSnapshotCreatedAt) {
+  const currentState = {
+    wordCount: lastSnapshotWords,
+    createdAt: lastSnapshotCreatedAt,
+    created: false
+  };
   if (!file) {
-    return lastSnapshotWords;
+    return currentState;
   }
   const currentWords = countWritingCharacters(currentText);
-  if (currentWords <= 0 || currentWords - lastSnapshotWords < SNAPSHOT_INTERVAL_WORDS) {
-    return lastSnapshotWords;
+  if (currentWords <= 0) {
+    return currentState;
   }
-  await createTimeMachineSnapshot(plugin, file, currentText, currentWords);
-  return currentWords;
+  const now = Date.now();
+  const today = formatDateStamp(now);
+  if (!await hasDailySnapshotForDate(plugin, file, today)) {
+    const dailySnapshot = await createTimeMachineSnapshot(plugin, file, currentText, {
+      kind: "daily",
+      wordCount: currentWords,
+      createdAt: now
+    });
+    return {
+      wordCount: dailySnapshot.wordCount,
+      createdAt: dailySnapshot.createdAt,
+      created: true
+    };
+  }
+  if (currentWords - lastSnapshotWords < AUTO_SNAPSHOT_INTERVAL_WORDS) {
+    return currentState;
+  }
+  if (lastSnapshotCreatedAt > 0 && now - lastSnapshotCreatedAt < AUTO_SNAPSHOT_MIN_INTERVAL_MS) {
+    return currentState;
+  }
+  const autoSnapshot = await createTimeMachineSnapshot(plugin, file, currentText, {
+    kind: "auto",
+    wordCount: currentWords,
+    createdAt: now
+  });
+  await pruneOldAutoSnapshots(plugin, file);
+  return {
+    wordCount: autoSnapshot.wordCount,
+    createdAt: autoSnapshot.createdAt,
+    created: true
+  };
 }
-async function createTimeMachineSnapshot(plugin, file, text, wordCount = countWritingCharacters(text)) {
-  const folderPath = getBackupFolderPath(file);
-  await ensureFolder(plugin, folderPath);
-  const createdAt = Date.now();
-  const snapshotPath = await getUniqueSnapshotPath(plugin, folderPath, file, createdAt, wordCount);
+async function createTimeMachineSnapshot(plugin, file, text, options = {}) {
+  const folderPath = await ensureChapterBackupFolder(plugin, file);
+  const createdAt = options.createdAt ?? Date.now();
+  const wordCount = options.wordCount ?? countWritingCharacters(text);
+  const kind = options.kind ?? "manual";
+  const snapshotPath = await getUniqueSnapshotPath(plugin, folderPath, kind, createdAt, wordCount);
   await plugin.app.vault.create(snapshotPath, text);
   return {
     path: snapshotPath,
     createdAt,
     wordCount,
-    originalPath: file.path
+    originalPath: file.path,
+    kind
   };
 }
 function getBackupFolderPath(file) {
   const parentPath = file.parent?.path;
   return (0, import_obsidian2.normalizePath)(parentPath && parentPath !== "/" ? `${parentPath}/${BACKUP_FOLDER_NAME}` : BACKUP_FOLDER_NAME);
+}
+function getChapterBackupFolderPath(file) {
+  return (0, import_obsidian2.normalizePath)(`${getBackupFolderPath(file)}/${sanitizeFileName(file.basename)}`);
 }
 function countWritingCharacters(text) {
   return Array.from(text.replace(/\s+/g, "")).length;
@@ -440,18 +481,9 @@ async function listTimeMachineSnapshots(plugin, file) {
   if (!file) {
     return [];
   }
-  const folder = plugin.app.vault.getAbstractFileByPath(getBackupFolderPath(file));
-  if (!(folder instanceof import_obsidian2.TFolder)) {
-    return [];
-  }
-  const prefix = `${sanitizeFileName(file.basename)}__`;
-  const suffix = ".md";
-  return folder.children.filter((child) => child instanceof import_obsidian2.TFile && child.name.startsWith(prefix) && child.name.endsWith(suffix)).map((snapshot) => ({
-    path: snapshot.path,
-    createdAt: snapshot.stat.ctime,
-    wordCount: readWordCountFromSnapshotName(snapshot.basename),
-    originalPath: file.path
-  })).sort((left, right) => right.createdAt - left.createdAt);
+  return [...listLegacySnapshots(plugin, file), ...listChapterSnapshots(plugin, file)].sort(
+    (left, right) => right.createdAt - left.createdAt
+  );
 }
 async function buildSnapshotDiff(plugin, snapshot, currentText) {
   const snapshotText = await plugin.app.vault.cachedRead(snapshot);
@@ -494,6 +526,13 @@ function diffLines(previousText, currentText) {
   }
   return result;
 }
+async function ensureChapterBackupFolder(plugin, file) {
+  const rootFolderPath = getBackupFolderPath(file);
+  await ensureFolder(plugin, rootFolderPath);
+  const chapterFolderPath = getChapterBackupFolderPath(file);
+  await ensureFolder(plugin, chapterFolderPath);
+  return chapterFolderPath;
+}
 async function ensureFolder(plugin, folderPath) {
   const existing = plugin.app.vault.getAbstractFileByPath(folderPath);
   if (existing) {
@@ -501,9 +540,56 @@ async function ensureFolder(plugin, folderPath) {
   }
   await plugin.app.vault.createFolder(folderPath);
 }
-async function getUniqueSnapshotPath(plugin, folderPath, file, createdAt, wordCount) {
-  const timestamp = formatTimestamp(createdAt);
-  const baseName = `${sanitizeFileName(file.basename)}__${timestamp}__${wordCount}\u5B57`;
+function listLegacySnapshots(plugin, file) {
+  const folder = plugin.app.vault.getAbstractFileByPath(getBackupFolderPath(file));
+  if (!(folder instanceof import_obsidian2.TFolder)) {
+    return [];
+  }
+  const prefix = `${sanitizeFileName(file.basename)}__`;
+  return folder.children.filter((child) => child instanceof import_obsidian2.TFile && child.name.startsWith(prefix) && child.name.endsWith(".md")).map((snapshot) => ({
+    path: snapshot.path,
+    createdAt: snapshot.stat.ctime,
+    wordCount: readWordCountFromSnapshotName(snapshot.basename),
+    originalPath: file.path,
+    kind: "legacy"
+  }));
+}
+function listChapterSnapshots(plugin, file) {
+  const folder = plugin.app.vault.getAbstractFileByPath(getChapterBackupFolderPath(file));
+  if (!(folder instanceof import_obsidian2.TFolder)) {
+    return [];
+  }
+  return folder.children.filter((child) => child instanceof import_obsidian2.TFile && child.extension === "md").map((snapshot) => ({
+    path: snapshot.path,
+    createdAt: snapshot.stat.ctime,
+    wordCount: readWordCountFromSnapshotName(snapshot.basename),
+    originalPath: file.path,
+    kind: readSnapshotKindFromName(snapshot.basename)
+  }));
+}
+async function hasDailySnapshotForDate(plugin, file, dateStamp) {
+  const folder = plugin.app.vault.getAbstractFileByPath(getChapterBackupFolderPath(file));
+  if (!(folder instanceof import_obsidian2.TFolder)) {
+    return false;
+  }
+  return folder.children.some(
+    (child) => child instanceof import_obsidian2.TFile && child.basename.startsWith(`daily__${dateStamp}__`) && child.extension === "md"
+  );
+}
+async function pruneOldAutoSnapshots(plugin, file) {
+  const folder = plugin.app.vault.getAbstractFileByPath(getChapterBackupFolderPath(file));
+  if (!(folder instanceof import_obsidian2.TFolder)) {
+    return;
+  }
+  const autoSnapshots = folder.children.filter((child) => child instanceof import_obsidian2.TFile && child.basename.startsWith("auto__") && child.extension === "md").sort((left, right) => right.stat.ctime - left.stat.ctime);
+  const expiredSnapshots = autoSnapshots.slice(MAX_AUTO_SNAPSHOTS_PER_FILE);
+  for (const snapshot of expiredSnapshots) {
+    await plugin.app.vault.delete(snapshot);
+  }
+}
+async function getUniqueSnapshotPath(plugin, folderPath, kind, createdAt, wordCount) {
+  const timestamp = kind === "daily" ? formatDateStamp(createdAt) : formatTimestamp(createdAt);
+  const baseName = `${kind}__${timestamp}__${wordCount}\u5B57`;
   let snapshotPath = (0, import_obsidian2.normalizePath)(`${folderPath}/${baseName}.md`);
   let counter = 2;
   while (plugin.app.vault.getAbstractFileByPath(snapshotPath)) {
@@ -516,10 +602,27 @@ function readWordCountFromSnapshotName(name) {
   const match = name.match(/__(\d+)字(?:-\d+)?$/);
   return match ? Number(match[1]) : 0;
 }
+function readSnapshotKindFromName(name) {
+  if (name.startsWith("auto__")) {
+    return "auto";
+  }
+  if (name.startsWith("daily__")) {
+    return "daily";
+  }
+  if (name.startsWith("manual__")) {
+    return "manual";
+  }
+  return "legacy";
+}
 function formatTimestamp(timestamp) {
   const date = new Date(timestamp);
   const pad = (value) => String(value).padStart(2, "0");
   return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
+function formatDateStamp(timestamp) {
+  const date = new Date(timestamp);
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
 }
 function sanitizeFileName(name) {
   return name.replace(/[\\/:*?"<>|]/g, "_");
@@ -616,6 +719,7 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
     this.activePluginTool = null;
     this.timeMachineSnapshots = [];
     this.lastSnapshotWords = 0;
+    this.lastSnapshotCreatedAt = 0;
     this.snapshotSaveInFlight = false;
     this.plugin = plugin;
     this.chapterPanelVisible = plugin.settings.showChapterPanel;
@@ -727,6 +831,7 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
     this.setViewData(contents, true);
     this.resetSessionStats(contents);
     this.lastSnapshotWords = countWritingCharacters(contents);
+    this.lastSnapshotCreatedAt = Date.now();
     await this.refreshTimeMachineSnapshots();
     await this.onLoadFile(file);
     if (this.plugin.settings.rememberLastFile) {
@@ -1021,7 +1126,7 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
   renderTimeMachineTool() {
     const panel = this.pluginBoxBodyEl.createDiv({ cls: "wm-tool-panel" });
     this.renderToolHeader(panel, "\u65F6\u5149\u673A");
-    panel.createDiv({ cls: "wm-plugin-panel-hint", text: "\u6BCF\u65B0\u589E\u7EA6 100 \u5B57\u81EA\u52A8\u5907\u4EFD" });
+    panel.createDiv({ cls: "wm-plugin-panel-hint", text: "\u81EA\u52A8\u5907\u4EFD\uFF1A\u6BCF\u65E5 1 \u4EFD + \u6BCF\u65B0\u589E\u7EA6 500 \u5B57\u4E14\u95F4\u9694 2 \u5206\u949F\uFF1B\u6BCF\u7AE0\u4FDD\u7559\u6700\u8FD1 30 \u4EFD\u81EA\u52A8\u5907\u4EFD\uFF0C\u624B\u52A8\u5907\u4EFD\u6C38\u4E45\u4FDD\u7559\u3002" });
     const snapshotNowButton = panel.createEl("button", {
       cls: "wm-toolbar-button wm-primary-button",
       text: "\u7ACB\u5373\u4FDD\u5B58\u7248\u672C",
@@ -1175,12 +1280,12 @@ ${PARAGRAPH_INDENT}`;
       return;
     }
     if (this.timeMachineSnapshots.length === 0) {
-      this.timeMachineListEl.createDiv({ cls: "wm-empty-sidebar-state", text: "\u6682\u65F6\u6CA1\u6709\u5386\u53F2\u7248\u672C\u3002\u5199\u4F5C\u65B0\u589E 100 \u5B57\u540E\u4F1A\u81EA\u52A8\u4FDD\u5B58\u3002" });
+      this.timeMachineListEl.createDiv({ cls: "wm-empty-sidebar-state", text: "\u6682\u65F6\u6CA1\u6709\u5386\u53F2\u7248\u672C\u3002\u6BCF\u5929\u4F1A\u4FDD\u7559 1 \u4EFD\u65E5\u5907\u4EFD\uFF0C\u5199\u4F5C\u65B0\u589E\u7EA6 500 \u5B57\u4E14\u95F4\u9694 2 \u5206\u949F\u540E\u4F1A\u81EA\u52A8\u4FDD\u5B58\u3002" });
       return;
     }
     this.timeMachineSnapshots.forEach((snapshot) => {
       const item = this.timeMachineListEl.createDiv({ cls: "wm-time-machine-item" });
-      item.createDiv({ cls: "wm-time-machine-title", text: new Date(snapshot.createdAt).toLocaleString() });
+      item.createDiv({ cls: "wm-time-machine-title", text: `${snapshotKindLabel(snapshot.kind)} \xB7 ${new Date(snapshot.createdAt).toLocaleString()}` });
       item.createDiv({ cls: "wm-time-machine-meta", text: `${snapshot.wordCount || "\u672A\u77E5"} \u5B57 \xB7 ${snapshot.path}` });
       const actions = item.createDiv({ cls: "wm-time-machine-actions" });
       const diffButton = actions.createEl("button", {
@@ -1237,6 +1342,7 @@ ${PARAGRAPH_INDENT}`;
     this.editorEl.value = formatEditorDisplayText(snapshotText);
     this.handleEditorMutation();
     this.lastSnapshotWords = countWritingCharacters(snapshotText);
+    this.lastSnapshotCreatedAt = Date.now();
     new import_obsidian3.Notice("\u5DF2\u6062\u590D\u5230\u6240\u9009\u65F6\u5149\u673A\u7248\u672C\u3002\u6062\u590D\u524D\u7684\u5F53\u524D\u5185\u5BB9\u5DF2\u53E6\u5B58\u4E3A\u5907\u4EFD\u3002");
     await this.refreshTimeMachineSnapshots();
   }
@@ -1246,8 +1352,9 @@ ${PARAGRAPH_INDENT}`;
       return;
     }
     const text = getPlainEditorText(this.editorEl.value);
-    const snapshot = await createTimeMachineSnapshot(this.plugin, this.file, text);
+    const snapshot = await createTimeMachineSnapshot(this.plugin, this.file, text, { kind: "manual" });
     this.lastSnapshotWords = snapshot.wordCount;
+    this.lastSnapshotCreatedAt = snapshot.createdAt;
     if (showNotice) {
       new import_obsidian3.Notice("\u5DF2\u4FDD\u5B58\u4E00\u4E2A\u65F6\u5149\u673A\u7248\u672C\u3002");
     }
@@ -1259,14 +1366,16 @@ ${PARAGRAPH_INDENT}`;
     }
     this.snapshotSaveInFlight = true;
     try {
-      const nextSnapshotWords = await maybeCreateTimeMachineSnapshot(
+      const snapshotState = await maybeCreateTimeMachineSnapshot(
         this.plugin,
         this.file,
         getPlainEditorText(this.editorEl.value),
-        this.lastSnapshotWords
+        this.lastSnapshotWords,
+        this.lastSnapshotCreatedAt
       );
-      if (nextSnapshotWords !== this.lastSnapshotWords) {
-        this.lastSnapshotWords = nextSnapshotWords;
+      if (snapshotState.created) {
+        this.lastSnapshotWords = snapshotState.wordCount;
+        this.lastSnapshotCreatedAt = snapshotState.createdAt;
         await this.refreshTimeMachineSnapshots();
       }
     } finally {
@@ -1528,6 +1637,18 @@ function diffPrefix(kind) {
     return "-";
   }
   return " ";
+}
+function snapshotKindLabel(kind) {
+  if (kind === "auto") {
+    return "\u81EA\u52A8";
+  }
+  if (kind === "daily") {
+    return "\u6BCF\u65E5";
+  }
+  if (kind === "manual") {
+    return "\u624B\u52A8";
+  }
+  return "\u65E7\u7248";
 }
 function createEmptySessionState() {
   return {

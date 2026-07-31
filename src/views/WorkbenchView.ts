@@ -100,6 +100,7 @@ export class WorkbenchView extends TextFileView {
   private activePluginTool: "random" | "time-machine" | null = null;
   private timeMachineSnapshots: TimeMachineSnapshot[] = [];
   private lastSnapshotWords = 0;
+  private lastSnapshotCreatedAt = 0;
   private snapshotSaveInFlight = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: WatermelonWorkbenchPlugin) {
@@ -233,6 +234,7 @@ export class WorkbenchView extends TextFileView {
     this.setViewData(contents, true);
     this.resetSessionStats(contents);
     this.lastSnapshotWords = countWritingCharacters(contents);
+    this.lastSnapshotCreatedAt = Date.now();
     await this.refreshTimeMachineSnapshots();
     await this.onLoadFile(file);
 
@@ -571,7 +573,7 @@ export class WorkbenchView extends TextFileView {
   private renderTimeMachineTool(): void {
     const panel = this.pluginBoxBodyEl.createDiv({ cls: "wm-tool-panel" });
     this.renderToolHeader(panel, "时光机");
-    panel.createDiv({ cls: "wm-plugin-panel-hint", text: "每新增约 100 字自动备份" });
+    panel.createDiv({ cls: "wm-plugin-panel-hint", text: "自动备份：每日 1 份 + 每新增约 500 字且间隔 2 分钟；每章保留最近 30 份自动备份，手动备份永久保留。" });
 
     const snapshotNowButton = panel.createEl("button", {
       cls: "wm-toolbar-button wm-primary-button",
@@ -761,13 +763,13 @@ export class WorkbenchView extends TextFileView {
     }
 
     if (this.timeMachineSnapshots.length === 0) {
-      this.timeMachineListEl.createDiv({ cls: "wm-empty-sidebar-state", text: "暂时没有历史版本。写作新增 100 字后会自动保存。" });
+      this.timeMachineListEl.createDiv({ cls: "wm-empty-sidebar-state", text: "暂时没有历史版本。每天会保留 1 份日备份，写作新增约 500 字且间隔 2 分钟后会自动保存。" });
       return;
     }
 
     this.timeMachineSnapshots.forEach((snapshot) => {
       const item = this.timeMachineListEl.createDiv({ cls: "wm-time-machine-item" });
-      item.createDiv({ cls: "wm-time-machine-title", text: new Date(snapshot.createdAt).toLocaleString() });
+      item.createDiv({ cls: "wm-time-machine-title", text: `${snapshotKindLabel(snapshot.kind)} · ${new Date(snapshot.createdAt).toLocaleString()}` });
       item.createDiv({ cls: "wm-time-machine-meta", text: `${snapshot.wordCount || "未知"} 字 · ${snapshot.path}` });
       const actions = item.createDiv({ cls: "wm-time-machine-actions" });
       const diffButton = actions.createEl("button", {
@@ -831,6 +833,7 @@ export class WorkbenchView extends TextFileView {
     this.editorEl.value = formatEditorDisplayText(snapshotText);
     this.handleEditorMutation();
     this.lastSnapshotWords = countWritingCharacters(snapshotText);
+    this.lastSnapshotCreatedAt = Date.now();
     new Notice("已恢复到所选时光机版本。恢复前的当前内容已另存为备份。");
     await this.refreshTimeMachineSnapshots();
   }
@@ -842,8 +845,9 @@ export class WorkbenchView extends TextFileView {
     }
 
     const text = getPlainEditorText(this.editorEl.value);
-    const snapshot = await createTimeMachineSnapshot(this.plugin, this.file, text);
+    const snapshot = await createTimeMachineSnapshot(this.plugin, this.file, text, { kind: "manual" });
     this.lastSnapshotWords = snapshot.wordCount;
+    this.lastSnapshotCreatedAt = snapshot.createdAt;
     if (showNotice) {
       new Notice("已保存一个时光机版本。");
     }
@@ -857,14 +861,16 @@ export class WorkbenchView extends TextFileView {
 
     this.snapshotSaveInFlight = true;
     try {
-      const nextSnapshotWords = await maybeCreateTimeMachineSnapshot(
+      const snapshotState = await maybeCreateTimeMachineSnapshot(
         this.plugin,
         this.file,
         getPlainEditorText(this.editorEl.value),
         this.lastSnapshotWords,
+        this.lastSnapshotCreatedAt,
       );
-      if (nextSnapshotWords !== this.lastSnapshotWords) {
-        this.lastSnapshotWords = nextSnapshotWords;
+      if (snapshotState.created) {
+        this.lastSnapshotWords = snapshotState.wordCount;
+        this.lastSnapshotCreatedAt = snapshotState.createdAt;
         await this.refreshTimeMachineSnapshots();
       }
     } finally {
@@ -1192,6 +1198,22 @@ function diffPrefix(kind: SnapshotDiffLine["kind"]): string {
   }
 
   return " ";
+}
+
+function snapshotKindLabel(kind: TimeMachineSnapshot["kind"]): string {
+  if (kind === "auto") {
+    return "自动";
+  }
+
+  if (kind === "daily") {
+    return "每日";
+  }
+
+  if (kind === "manual") {
+    return "手动";
+  }
+
+  return "旧版";
 }
 
 function createEmptySessionState(): SessionRuntimeState {

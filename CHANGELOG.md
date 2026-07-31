@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.4
+
+### Changed
+
+- Reduced automatic Time Machine snapshot frequency to daily backups plus throttled 500-character auto backups.
+- Organized Time Machine snapshots into per-chapter backup folders and retained only the latest 30 automatic snapshots per chapter.
+- Kept manual snapshots permanently while continuing to show older legacy snapshots.
+
 ## 0.1.3
 
 ### Fixed
