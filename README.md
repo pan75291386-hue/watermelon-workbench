@@ -56,6 +56,7 @@ A small right-side dashboard tracks the essentials:
 - Session words / typing speed
 - Writing time / idle time
 - Total characters / non-space characters
+- Chapter count / total novel word count across the current folder
 
 ## 📦 Installation
 

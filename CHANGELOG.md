@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.1
+
+### Added
+
+- Added chapter count to the compact live stats panel.
+- Added total novel word count across Markdown files in the current chapter folder.
+
+### Changed
+
+- Added a public `authorUrl` in `manifest.json` for Obsidian community plugin submission.
+
 ## 0.1.0
 
 Initial public-ready release.
