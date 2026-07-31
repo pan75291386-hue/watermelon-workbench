@@ -59,10 +59,6 @@ export default class WatermelonWorkbenchPlugin extends Plugin {
     this.addSettingTab(new WatermelonSettingTab(this));
   }
 
-  override onunload(): void {
-    this.app.workspace.detachLeavesOfType(WORKBENCH_VIEW_TYPE);
-  }
-
   async loadSettings(): Promise<void> {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
   }

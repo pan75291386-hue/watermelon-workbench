@@ -43,11 +43,10 @@ export class WatermelonSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h2", { text: "Watermelon Workbench" });
-    containerEl.createEl("p", {
-      text: "保持 Markdown 文件不变，只调整写作工作台中的展示与辅助功能。",
-      cls: "wm-settings-description",
-    });
+    new Setting(containerEl).setName("Watermelon Workbench").setHeading();
+    new Setting(containerEl)
+      .setName("保持 Markdown 文件不变，只调整写作工作台中的展示与辅助功能。")
+      .setClass("wm-settings-description");
 
     new Setting(containerEl)
       .setName("Manuscript root")

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2
+
+### Fixed
+
+- Updated plugin metadata to satisfy Obsidian community plugin review rules.
+- Removed unload-time leaf detaching so workspace layouts are preserved.
+- Replaced the settings heading with Obsidian's recommended `Setting#setHeading()` API.
+- Avoided APIs newer than the declared minimum app version.
+
 ## 0.1.1
 
 ### Added

@@ -252,7 +252,6 @@ export class WorkbenchView extends TextFileView {
         active: true,
         state: { file: currentFile.path, mode: "source" },
       });
-      await this.app.workspace.revealLeaf(this.leaf);
       return;
     }
 
@@ -1219,9 +1218,6 @@ export async function openWorkbenchLeaf(
     active: true,
     state: file ? { file: file.path } : undefined,
   });
-
-  await workspace.revealLeaf(leaf);
-  await leaf.loadIfDeferred();
 
   const view = leaf.view;
   if (!(view instanceof WorkbenchView)) {

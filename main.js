@@ -48,11 +48,8 @@ var WatermelonSettingTab = class extends import_obsidian.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Watermelon Workbench" });
-    containerEl.createEl("p", {
-      text: "\u4FDD\u6301 Markdown \u6587\u4EF6\u4E0D\u53D8\uFF0C\u53EA\u8C03\u6574\u5199\u4F5C\u5DE5\u4F5C\u53F0\u4E2D\u7684\u5C55\u793A\u4E0E\u8F85\u52A9\u529F\u80FD\u3002",
-      cls: "wm-settings-description"
-    });
+    new import_obsidian.Setting(containerEl).setName("Watermelon Workbench").setHeading();
+    new import_obsidian.Setting(containerEl).setName("\u4FDD\u6301 Markdown \u6587\u4EF6\u4E0D\u53D8\uFF0C\u53EA\u8C03\u6574\u5199\u4F5C\u5DE5\u4F5C\u53F0\u4E2D\u7684\u5C55\u793A\u4E0E\u8F85\u52A9\u529F\u80FD\u3002").setClass("wm-settings-description");
     new import_obsidian.Setting(containerEl).setName("Manuscript root").setDesc("Only used as an optional ceiling for your novel files. Leave empty to derive scope from the currently opened note.").addText((text) => {
       text.setPlaceholder("Novels/My Project").setValue(this.plugin.settings.manuscriptRoot).onChange(async (value) => {
         this.plugin.settings.manuscriptRoot = normalizeRootInput(value);
@@ -747,7 +744,6 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
         active: true,
         state: { file: currentFile.path, mode: "source" }
       });
-      await this.app.workspace.revealLeaf(this.leaf);
       return;
     }
     this.leaf.detach();
@@ -1553,8 +1549,6 @@ async function openWorkbenchLeaf(plugin, file) {
     active: true,
     state: file ? { file: file.path } : void 0
   });
-  await workspace.revealLeaf(leaf);
-  await leaf.loadIfDeferred();
   const view = leaf.view;
   if (!(view instanceof WorkbenchView)) {
     new import_obsidian3.Notice("Unable to open the Watermelon workbench view.");
@@ -1615,9 +1609,6 @@ var WatermelonWorkbenchPlugin = class extends import_obsidian4.Plugin {
       await openWorkbenchLeaf(this, this.app.workspace.getActiveFile());
     });
     this.addSettingTab(new WatermelonSettingTab(this));
-  }
-  onunload() {
-    this.app.workspace.detachLeavesOfType(WORKBENCH_VIEW_TYPE);
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
