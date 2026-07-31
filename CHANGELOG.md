@@ -1,0 +1,18 @@
+# Changelog
+
+## 0.1.0
+
+Initial public-ready release.
+
+### Added
+
+- Focused Obsidian writing workbench for Markdown files.
+- Current-leaf open/exit flow that returns to the normal Markdown editor.
+- Chapter list for sibling Markdown files.
+- Typography controls for font, size, and line height.
+- Writing-friendly displayed indentation that keeps saved Markdown clean.
+- Local random name and place generator.
+- Time Machine snapshots in a local `备份` folder.
+- Snapshot diff and restore actions.
+- Compact live writing statistics.
+- Comfortable auto-scroll while writing near the bottom of the editor.

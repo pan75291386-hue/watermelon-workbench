@@ -1,0 +1,30 @@
+{
+  "name": "watermelon-workbench",
+  "version": "0.1.0",
+  "description": "A cozy Obsidian writing workbench for novelists: focused editing, chapter navigation, local name generator, time-machine backups, and live writing stats.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production",
+    "typecheck": "tsc --noEmit",
+    "version": "node -e \"const fs=require('fs');const pkg=require('./package.json');const manifest=require('./manifest.json');manifest.version=pkg.version;fs.writeFileSync('./manifest.json', JSON.stringify(manifest, null, 2)+'\\n');\""
+  },
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin",
+    "writing",
+    "novel",
+    "fiction",
+    "workbench",
+    "watermelon"
+  ],
+  "author": "pan",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "builtin-modules": "^4.0.0",
+    "esbuild": "^0.25.9",
+    "obsidian": "latest",
+    "typescript": "^5.8.3"
+  }
+}

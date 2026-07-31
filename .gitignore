@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build/dev output
+*.map
+*.tsbuildinfo
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Obsidian local state
+.obsidian/workspace*.json
+.obsidian/cache/
