@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.6
+
+### Added
+
+- Added chapter creation directly from the chapter list.
+- Added chapter renaming by clicking the chapter title, with validation for duplicate or invalid names.
+- Added a chapter context menu for opening, renaming, and deleting chapters safely through Obsidian.
+- Added modern and ancient Chinese person-name categories.
+- Added expanded place categories and dedicated school-name categories.
+
+### Changed
+
+- Improved bottom-of-editor comfort scrolling so the caret stays in a better writing position near the end of long chapters.
+
 ## 0.1.5
 
 ### Changed

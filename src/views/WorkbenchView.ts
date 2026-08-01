@@ -1,5 +1,10 @@
 import {
+  App,
+  Menu,
+  Modal,
   Notice,
+  normalizePath,
+  Setting,
   TAbstractFile,
   TFile,
   TextFileView,
@@ -11,6 +16,11 @@ import type { WatermelonSettings } from "../settings";
 import {
   createDefaultRandomNameOptions,
   generateRandomNames,
+  getRandomNameCategory,
+  isChinesePersonCategory,
+  listRandomNameCategories,
+  listRandomNameGroups,
+  normalizeRandomNameOptions,
   type RandomNameOptions,
 } from "../services/RandomNameService";
 import {
@@ -102,10 +112,13 @@ export class WorkbenchView extends TextFileView {
   private randomNameOptions: RandomNameOptions = createDefaultRandomNameOptions();
   private randomNames: string[] = [];
   private activePluginTool: "random" | "time-machine" | null = null;
+  private otherChaptersWords = 0;
+  private novelTotalWords = 0;
   private timeMachineSnapshots: TimeMachineSnapshot[] = [];
   private lastSnapshotWords = 0;
   private lastSnapshotCreatedAt = 0;
   private snapshotSaveInFlight = false;
+  private caretMirrorEl: HTMLDivElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: WatermelonWorkbenchPlugin) {
     super(leaf);
@@ -286,9 +299,9 @@ export class WorkbenchView extends TextFileView {
     }
 
     const siblingFiles = getMarkdownSiblings(file, this.app.vault.getMarkdownFiles());
-    if (siblingFiles.length > 1 && file.parent?.path) {
+    if (siblingFiles.length > 1) {
       this.scopeMode = "folder";
-      this.scopeRootPath = file.parent.path;
+      this.scopeRootPath = file.parent?.path ?? "";
     } else {
       this.scopeMode = "single-file";
       this.scopeRootPath = file.path;
@@ -424,6 +437,15 @@ export class WorkbenchView extends TextFileView {
     this.chapterListEl.empty();
     const headerEl = this.chapterListEl.createDiv({ cls: "wm-sidebar-header" });
     headerEl.createEl("h3", { text: "章节目录" });
+    const createButton = headerEl.createEl("button", {
+      cls: "clickable-icon",
+      attr: { type: "button", "aria-label": "新建章节" },
+    });
+    setIcon(createButton, "file-plus");
+    this.registerDomEvent(createButton, "click", () => {
+      void this.createChapterInCurrentDirectory();
+    });
+
     const refreshButton = headerEl.createEl("button", {
       cls: "clickable-icon",
       attr: { type: "button", "aria-label": "刷新章节列表" },
@@ -513,30 +535,24 @@ export class WorkbenchView extends TextFileView {
     const panel = this.pluginBoxBodyEl.createDiv({ cls: "wm-tool-panel" });
     this.renderToolHeader(panel, "随机取名");
 
+    this.randomNameOptions = normalizeRandomNameOptions(this.randomNameOptions);
+
     const controls = panel.createDiv({ cls: "wm-random-controls" });
-    const targetSelect = this.createLabeledSelect(controls, "类型", [
-      ["person", "人名"],
-      ["place", "地名"],
-    ]);
-    targetSelect.value = this.randomNameOptions.target;
+    const groupSelect = this.createLabeledSelect(
+      controls,
+      "类型",
+      listRandomNameGroups().map((group) => [group.id, group.label]),
+    );
+    groupSelect.value = this.randomNameOptions.group;
 
-    const languageSelect = this.createLabeledSelect(controls, "人名", [
-      ["chinese", "中文"],
-      ["english", "英文"],
-    ]);
-    languageSelect.value = this.randomNameOptions.personLanguage;
-
+    const categorySelect = this.createLabeledSelect(controls, "细类", []);
     const lengthSelect = this.createLabeledSelect(controls, "字数", [
       ["2", "二字名"],
       ["3", "三字名"],
     ]);
     lengthSelect.value = String(this.randomNameOptions.chineseNameLength);
 
-    const placeSelect = this.createLabeledSelect(controls, "地名", [
-      ["ancient", "古代"],
-      ["modern", "现代"],
-    ]);
-    placeSelect.value = this.randomNameOptions.placeStyle;
+    const hintEl = panel.createDiv({ cls: "wm-random-hint" });
 
     const generateButton = panel.createEl("button", {
       cls: "wm-toolbar-button wm-primary-button",
@@ -559,26 +575,46 @@ export class WorkbenchView extends TextFileView {
       });
     };
 
-    const updateOptions = () => {
-      this.randomNameOptions = {
-        target: targetSelect.value === "place" ? "place" : "person",
-        personLanguage: languageSelect.value === "english" ? "english" : "chinese",
+    const refreshCategorySelect = (preferredCategoryId: string) => {
+      categorySelect.empty();
+      const categories = listRandomNameCategories(groupSelect.value as RandomNameOptions["group"]);
+      categories.forEach((category) => {
+        categorySelect.createEl("option", { value: category.id, text: category.label });
+      });
+
+      const categoryId = categories.some((category) => category.id === preferredCategoryId)
+        ? preferredCategoryId
+        : categories[0]?.id ?? "person.chinese.modern";
+      categorySelect.value = categoryId;
+    };
+
+    const updateOptions = (keepCategory = true) => {
+      if (!keepCategory) {
+        refreshCategorySelect("");
+      }
+
+      this.randomNameOptions = normalizeRandomNameOptions({
+        group: groupSelect.value as RandomNameOptions["group"],
+        categoryId: categorySelect.value as RandomNameOptions["categoryId"],
         chineseNameLength: lengthSelect.value === "3" ? 3 : 2,
-        placeStyle: placeSelect.value === "modern" ? "modern" : "ancient",
-      };
-      languageSelect.disabled = this.randomNameOptions.target === "place";
-      lengthSelect.disabled = this.randomNameOptions.target === "place" || this.randomNameOptions.personLanguage === "english";
-      placeSelect.disabled = this.randomNameOptions.target === "person";
+      });
+
+      groupSelect.value = this.randomNameOptions.group;
+      refreshCategorySelect(this.randomNameOptions.categoryId);
+      categorySelect.value = this.randomNameOptions.categoryId;
+      lengthSelect.value = String(this.randomNameOptions.chineseNameLength);
+      lengthSelect.disabled = !isChinesePersonCategory(this.randomNameOptions.categoryId);
+      hintEl.setText(`${getRandomNameCategory(this.randomNameOptions.categoryId).hint} 点击名称可插入正文。`);
       this.randomNames = generateRandomNames(this.randomNameOptions, 12);
       renderNames();
     };
 
-    this.registerDomEvent(targetSelect, "change", updateOptions);
-    this.registerDomEvent(languageSelect, "change", updateOptions);
-    this.registerDomEvent(lengthSelect, "change", updateOptions);
-    this.registerDomEvent(placeSelect, "change", updateOptions);
-    this.registerDomEvent(generateButton, "click", updateOptions);
-    updateOptions();
+    refreshCategorySelect(this.randomNameOptions.categoryId);
+    this.registerDomEvent(groupSelect, "change", () => updateOptions(false));
+    this.registerDomEvent(categorySelect, "change", () => updateOptions(true));
+    this.registerDomEvent(lengthSelect, "change", () => updateOptions(true));
+    this.registerDomEvent(generateButton, "click", () => updateOptions(true));
+    updateOptions(true);
   }
 
   private renderTimeMachineTool(): void {
@@ -675,12 +711,42 @@ export class WorkbenchView extends TextFileView {
         return;
       }
 
-      const distanceToBottom = editor.scrollHeight - editor.clientHeight - editor.scrollTop;
-      const comfortZone = Math.round(editor.clientHeight * 0.28);
-      if (distanceToBottom < comfortZone) {
-        editor.scrollTop = Math.max(0, editor.scrollHeight - editor.clientHeight);
+      const caretTop = this.getTextareaCaretTop(editor, cursor);
+      const caretViewportY = caretTop - editor.scrollTop;
+      const lowerTrigger = editor.clientHeight * 0.62;
+      if (caretViewportY <= lowerTrigger) {
+        return;
       }
+
+      const targetY = editor.clientHeight * 0.48;
+      const maxScrollTop = Math.max(0, editor.scrollHeight - editor.clientHeight);
+      editor.scrollTop = clamp(caretTop - targetY, 0, maxScrollTop);
     });
+  }
+
+  private getTextareaCaretTop(editor: HTMLTextAreaElement, cursor: number): number {
+    const style = window.getComputedStyle(editor);
+    const mirror = this.getCaretMirrorEl();
+    const marker = document.createElement("span");
+    const beforeCursor = editor.value.slice(0, cursor);
+
+    mirror.empty();
+    copyTextareaLayoutStyles(editor, mirror, style);
+    mirror.appendText(beforeCursor.length > 0 ? beforeCursor : " ");
+    marker.appendText(" ");
+    mirror.appendChild(marker);
+
+    const mirrorRect = mirror.getBoundingClientRect();
+    const markerRect = marker.getBoundingClientRect();
+    return markerRect.top - mirrorRect.top;
+  }
+
+  private getCaretMirrorEl(): HTMLDivElement {
+    if (!this.caretMirrorEl) {
+      this.caretMirrorEl = this.editorShellEl.createDiv();
+    }
+
+    return this.caretMirrorEl;
   }
 
   private normalizeEditorDisplay(): void {
@@ -892,6 +958,20 @@ export class WorkbenchView extends TextFileView {
   refreshChapterList(): void {
     this.chapters = this.getScopedFiles().sort((left, right) => this.compareFiles(left, right, this.plugin.settings));
     this.renderChapterItems();
+    void this.refreshNovelTotalWords();
+  }
+
+  private async refreshNovelTotalWords(): Promise<void> {
+    const activeFilePath = this.file?.path;
+    const totals = await Promise.all(
+      this.chapters
+        .filter((file) => file.path !== activeFilePath)
+        .map(async (file) => computeWritingStats(await this.app.vault.cachedRead(file)).words),
+    );
+
+    this.otherChaptersWords = totals.reduce((total, words) => total + words, 0);
+    this.novelTotalWords = this.otherChaptersWords + computeWritingStats(this.editorEl ? getPlainEditorText(this.editorEl.value) : this.data ?? "").words;
+    this.updateStats();
   }
 
   private renderChapterItems(): void {
@@ -910,15 +990,243 @@ export class WorkbenchView extends TextFileView {
     }
 
     this.chapters.forEach((file) => {
-      const item = this.chapterListBodyEl.createEl("button", {
-        cls: `wm-chapter-item${file.path === this.selectedChapterPath ? " is-active" : ""}`,
-        attr: { type: "button" },
+      const row = this.chapterListBodyEl.createDiv({
+        cls: `wm-chapter-row${file.path === this.selectedChapterPath ? " is-active" : ""}`,
       });
-      item.createDiv({ cls: "wm-chapter-title", text: file.basename });
+      const item = row.createEl("button", {
+        cls: "wm-chapter-item",
+        attr: { type: "button", title: file.path },
+      });
+      const titleEl = item.createDiv({ cls: "wm-chapter-title", text: file.basename });
       this.registerDomEvent(item, "click", () => {
         void this.openChapter(file);
       });
+      this.registerDomEvent(titleEl, "click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.promptRenameChapter(file);
+      });
+      this.registerDomEvent(item, "contextmenu", (event) => {
+        event.preventDefault();
+        Menu.forEvent(event)
+          .addItem((menuItem) => {
+            menuItem
+              .setTitle("打开章节")
+              .setIcon("file-text")
+              .onClick(() => {
+                void this.openChapter(file);
+              });
+          })
+          .addItem((menuItem) => {
+            menuItem
+              .setTitle("重命名章节")
+              .setIcon("pencil")
+              .onClick(() => this.promptRenameChapter(file));
+          })
+          .addItem((menuItem) => {
+            menuItem
+              .setTitle("删除章节")
+              .setIcon("trash-2")
+              .setWarning(true)
+              .onClick(() => {
+                void this.deleteChapter(file);
+              });
+          });
+      });
     });
+  }
+
+  private async createChapterInCurrentDirectory(): Promise<void> {
+    const folderPath = this.getCurrentChapterCreationFolderPath();
+    if (folderPath === null) {
+      new Notice("请先打开一个章节，再新建章节。");
+      return;
+    }
+
+    try {
+      await this.save();
+      const file = await this.app.vault.create(this.getUniqueChapterPath(folderPath), "");
+      this.scopeMode = "folder";
+      this.scopeRootPath = file.parent?.path ?? folderPath;
+      this.refreshChapterList();
+      await this.openChapter(file);
+      this.editorEl.focus();
+      new Notice(`已新建章节：${file.basename}`);
+    } catch (error) {
+      console.error("Failed to create chapter", error);
+      new Notice("新建章节失败，请检查当前目录是否可写。");
+    }
+  }
+
+  private getCurrentChapterCreationFolderPath(): string | null {
+    if (this.scopeMode === "folder" && this.scopeRootPath !== null) {
+      return this.scopeRootPath;
+    }
+
+    if (this.file) {
+      return this.file.parent?.path ?? "";
+    }
+
+    if (this.selectedChapterPath) {
+      const selectedFile = this.app.vault.getAbstractFileByPath(this.selectedChapterPath);
+      if (selectedFile instanceof TFile) {
+        return selectedFile.parent?.path ?? "";
+      }
+    }
+
+    return null;
+  }
+
+  private getUniqueChapterPath(folderPath: string): string {
+    const baseName = "新章节";
+    let chapterPath = joinVaultPath(folderPath, `${baseName}.md`);
+    let counter = 2;
+
+    while (this.app.vault.getAbstractFileByPath(chapterPath)) {
+      chapterPath = joinVaultPath(folderPath, `${baseName} ${counter}.md`);
+      counter += 1;
+    }
+
+    return chapterPath;
+  }
+
+  private promptRenameChapter(file: TFile): void {
+    new ChapterRenameModal(this.app, file, async (inputName) => {
+      const baseName = normalizeChapterBaseName(inputName);
+      const error = this.getChapterRenameError(file, baseName);
+      if (error) {
+        return error;
+      }
+
+      if (baseName === file.basename) {
+        return null;
+      }
+
+      await this.renameChapter(file, baseName);
+      return null;
+    }).open();
+  }
+
+  private async renameChapter(file: TFile, baseName: string): Promise<void> {
+    const newPath = this.getChapterRenamePath(file, baseName);
+    const renamingActiveFile = this.file?.path === file.path;
+
+    try {
+      if (renamingActiveFile) {
+        await this.save();
+      }
+
+      await this.app.fileManager.renameFile(file, newPath);
+      const renamedFile = this.app.vault.getAbstractFileByPath(newPath);
+      if (renamedFile instanceof TFile) {
+        if (renamingActiveFile) {
+          this.file = renamedFile;
+          this.selectedChapterPath = renamedFile.path;
+          if (this.scopeMode === "single-file" && this.scopeRootPath === file.path) {
+            this.scopeRootPath = renamedFile.path;
+          }
+          await this.refreshTimeMachineSnapshots();
+
+          if (this.plugin.settings.rememberLastFile) {
+            this.plugin.settings.lastOpenFilePath = renamedFile.path;
+            await this.plugin.saveSettings();
+          }
+        } else if (this.selectedChapterPath === file.path) {
+          this.selectedChapterPath = renamedFile.path;
+        }
+      }
+
+      this.refreshChapterList();
+      this.updateHeaderState();
+      new Notice(`已重命名为：${baseName}`);
+    } catch (error) {
+      console.error("Failed to rename chapter", error);
+      new Notice("重命名章节失败，请检查名称是否有效或目标文件是否已存在。");
+      this.refreshChapterList();
+    }
+  }
+
+  private getChapterRenamePath(file: TFile, baseName: string): string {
+    return joinVaultPath(file.parent?.path ?? "", `${baseName}.md`);
+  }
+
+  private getChapterRenameError(file: TFile, baseName: string): string | null {
+    const invalidNameReason = getInvalidChapterBaseNameReason(baseName);
+    if (invalidNameReason) {
+      return invalidNameReason;
+    }
+
+    const targetPath = this.getChapterRenamePath(file, baseName);
+    const existingFile = this.app.vault.getAbstractFileByPath(targetPath);
+    if (existingFile && existingFile.path !== file.path) {
+      return "同名章节已存在。";
+    }
+
+    return null;
+  }
+
+  private async deleteChapter(file: TFile): Promise<void> {
+    const deletingActiveFile = this.file?.path === file.path;
+
+    try {
+      if (deletingActiveFile) {
+        await this.save();
+      }
+
+      const confirmed = await this.app.fileManager.promptForDeletion(file);
+      if (!confirmed) {
+        return;
+      }
+
+      const nextFile = deletingActiveFile ? this.getNextChapterAfter(file) : null;
+      await this.app.fileManager.trashFile(file);
+
+      if (deletingActiveFile) {
+        this.file = null;
+        this.selectedChapterPath = null;
+        const nextExistingFile = nextFile ? this.app.vault.getAbstractFileByPath(nextFile.path) : null;
+        if (nextExistingFile instanceof TFile) {
+          await this.openChapter(nextExistingFile);
+        } else {
+          this.scopeMode = "folder";
+          this.scopeRootPath = file.parent?.path ?? "";
+          await this.clearDeletedActiveChapterState();
+        }
+      } else {
+        this.refreshChapterList();
+      }
+
+      new Notice(`已移至废纸篓：${file.basename}`);
+    } catch (error) {
+      console.error("Failed to delete chapter", error);
+      new Notice("删除章节失败，请检查文件是否仍存在或是否可写。");
+      this.refreshChapterList();
+    }
+  }
+
+  private getNextChapterAfter(file: TFile): TFile | null {
+    const index = this.chapters.findIndex((chapter) => chapter.path === file.path);
+    if (index === -1) {
+      return null;
+    }
+
+    return this.chapters[index + 1] ?? this.chapters[index - 1] ?? null;
+  }
+
+  private async clearDeletedActiveChapterState(): Promise<void> {
+    this.file = null;
+    this.selectedChapterPath = null;
+    this.timeMachineSnapshots = [];
+    this.renderTimeMachineSnapshots();
+    this.timeMachineDiffEl?.empty();
+    this.clear();
+    this.renderEmptyEditorState("当前章节已删除。请选择或新建一个章节继续写作。");
+    this.refreshChapterList();
+
+    if (this.plugin.settings.rememberLastFile) {
+      this.plugin.settings.lastOpenFilePath = null;
+      await this.plugin.saveSettings();
+    }
   }
 
   private updateStats(): void {
@@ -928,6 +1236,7 @@ export class WorkbenchView extends TextFileView {
 
     const staticStats = computeWritingStats(this.editorEl ? getPlainEditorText(this.editorEl.value) : this.data ?? "");
     const sessionStats = this.getSessionStats(staticStats.words);
+    this.novelTotalWords = this.otherChaptersWords + staticStats.words;
     const rows = this.buildStatsRows(staticStats, sessionStats);
 
     this.statsBodyEl.empty();
@@ -954,6 +1263,10 @@ export class WorkbenchView extends TextFileView {
       [
         ["总字符数", String(stats.characters)],
         ["去空格字符数", String(stats.charactersNoSpaces)],
+      ],
+      [
+        ["章节数", String(this.chapters.length)],
+        ["小说总字数", String(this.novelTotalWords || stats.words)],
       ],
     ];
   }
@@ -1026,7 +1339,7 @@ export class WorkbenchView extends TextFileView {
   }
 
   private isFileInCurrentScope(file: TFile): boolean {
-    if (!this.scopeRootPath) {
+    if (this.scopeRootPath === null) {
       return false;
     }
 
@@ -1038,7 +1351,7 @@ export class WorkbenchView extends TextFileView {
   }
 
   private getScopedFiles(): TFile[] {
-    if (!this.scopeRootPath) {
+    if (this.scopeRootPath === null) {
       return [];
     }
 
@@ -1145,6 +1458,77 @@ export class WorkbenchView extends TextFileView {
   }
 }
 
+class ChapterRenameModal extends Modal {
+  private submitting = false;
+
+  constructor(
+    app: App,
+    private readonly file: TFile,
+    private readonly onSubmit: (baseName: string) => Promise<string | null>,
+  ) {
+    super(app);
+  }
+
+  override onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", { text: "重命名章节" });
+    contentEl.createEl("p", { cls: "wm-settings-description", text: "仅修改文件名，保留 .md 扩展名。" });
+
+    let inputValue = this.file.basename;
+    const nameSetting = new Setting(contentEl)
+      .setName("章节名称")
+      .setDesc("可以直接输入名称，也可以带 .md 后缀。")
+      .addText((text) => {
+        text.setValue(inputValue);
+        text.inputEl.select();
+        text.onChange((value) => {
+          inputValue = value;
+          nameSetting.setErrorMessage(null);
+        });
+        text.inputEl.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            void submit();
+          }
+        });
+      });
+
+    const submit = async () => {
+      if (this.submitting) {
+        return;
+      }
+
+      this.submitting = true;
+      try {
+        const error = await this.onSubmit(inputValue);
+        if (error) {
+          nameSetting.setErrorMessage(error);
+          return;
+        }
+
+        this.close();
+      } finally {
+        this.submitting = false;
+      }
+    };
+
+    new Setting(contentEl)
+      .addButton((button) => {
+        button.setButtonText("取消").onClick(() => this.close());
+      })
+      .addButton((button) => {
+        button.setButtonText("重命名").setCta().onClick(() => {
+          void submit();
+        });
+      });
+  }
+
+  override onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
 function prettyFontName(fontFamily: string): string {
   if (!fontFamily) {
     return "跟随 Obsidian";
@@ -1195,16 +1579,73 @@ function getPlainEditorText(text: string): string {
 }
 
 function getMarkdownSiblings(currentFile: TFile, allMarkdownFiles: TFile[]): TFile[] {
-  const parentPath = currentFile.parent?.path;
-  if (!parentPath) {
-    return [currentFile];
+  const parentPath = currentFile.parent?.path ?? "";
+  return allMarkdownFiles.filter((file) => (file.parent?.path ?? "") === parentPath);
+}
+
+function joinVaultPath(folderPath: string, fileName: string): string {
+  return normalizePath(folderPath && folderPath !== "/" ? `${folderPath}/${fileName}` : fileName);
+}
+
+function normalizeChapterBaseName(input: string): string {
+  const trimmed = input.trim();
+  return trimmed.toLowerCase().endsWith(".md") ? trimmed.slice(0, -3).trim() : trimmed;
+}
+
+function getInvalidChapterBaseNameReason(baseName: string): string | null {
+  if (!baseName) {
+    return "章节名不能为空。";
   }
 
-  return allMarkdownFiles.filter((file) => file.parent?.path === parentPath);
+  if (/[\\/:*?"<>|]/.test(baseName)) {
+    return "章节名不能包含 / \\ : * ? \" < > |。";
+  }
+
+  if (baseName.endsWith(".")) {
+    return "章节名不能以句点结尾。";
+  }
+
+  return null;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 function clampPanelWidth(width: number): number {
-  return Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, Math.round(width)));
+  return Math.round(clamp(width, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH));
+}
+
+function parseCssPx(value: string, fallback: number): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function copyTextareaLayoutStyles(editor: HTMLTextAreaElement, mirror: HTMLDivElement, style: CSSStyleDeclaration): void {
+  mirror.style.position = "absolute";
+  mirror.style.top = "0";
+  mirror.style.left = "0";
+  mirror.style.width = style.width;
+  mirror.style.height = "auto";
+  mirror.style.minHeight = "0";
+  mirror.style.maxHeight = "none";
+  mirror.style.visibility = "hidden";
+  mirror.style.pointerEvents = "none";
+  mirror.style.overflow = "hidden";
+  mirror.style.whiteSpace = "pre-wrap";
+  mirror.style.overflowWrap = "break-word";
+  mirror.style.wordBreak = "break-word";
+  mirror.style.boxSizing = style.boxSizing;
+  mirror.style.padding = style.padding;
+  mirror.style.border = style.border;
+  mirror.style.fontFamily = style.fontFamily;
+  mirror.style.fontSize = style.fontSize;
+  mirror.style.fontWeight = style.fontWeight;
+  mirror.style.fontStyle = style.fontStyle;
+  mirror.style.lineHeight = style.lineHeight;
+  mirror.style.letterSpacing = style.letterSpacing;
+  mirror.style.textTransform = style.textTransform;
+  mirror.style.tabSize = style.tabSize;
 }
 
 function diffPrefix(kind: SnapshotDiffLine["kind"]): string {

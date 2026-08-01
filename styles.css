@@ -188,17 +188,23 @@
   overflow-y: auto;
 }
 
+.wm-chapter-row {
+  display: block;
+}
+
 .wm-chapter-item {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   width: 100%;
+  min-width: 0;
   padding: 12px 10px;
-  text-align: center;
+  text-align: left;
   cursor: pointer;
 }
 
-.wm-chapter-item.is-active {
+.wm-chapter-item.is-active,
+.wm-chapter-row.is-active .wm-chapter-item {
   border-color: var(--interactive-accent);
   background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary));
 }
@@ -206,9 +212,10 @@
 .wm-chapter-title {
   font-size: 14px;
   font-weight: 600;
-  text-align: center;
+  text-align: left;
   line-height: 1.5;
   word-break: break-word;
+  cursor: text;
 }
 
 .wm-chapter-path {
@@ -292,8 +299,10 @@
 }
 
 .wm-plugin-panel-hint,
+.wm-random-hint,
 .wm-time-machine-meta {
   font-size: 12px;
+  line-height: 1.5;
   color: var(--text-muted);
 }
 
@@ -335,7 +344,10 @@
 }
 
 .wm-random-name-chip {
+  max-width: 100%;
   padding: 6px 10px;
+  line-height: 1.4;
+  white-space: normal;
 }
 
 .wm-time-machine-list {
@@ -412,7 +424,7 @@
   resize: none;
   border: 0;
   outline: none;
-  padding: 32px 56px;
+  padding: 32px 56px 45vh;
   background: var(--background-primary);
   color: var(--text-normal);
   font-family: var(--wm-font-family);

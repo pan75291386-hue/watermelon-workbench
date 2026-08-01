@@ -1,306 +1,163 @@
-export type RandomNameTarget = "person" | "place";
-export type PersonLanguage = "chinese" | "english";
+import {
+  CHINESE_PERSON_NAME_POOLS,
+  COMPOUND_PLACE_POOLS,
+  ENGLISH_FIRST_NAMES,
+  ENGLISH_LAST_NAMES,
+  RANDOM_NAME_CATEGORIES,
+  RANDOM_NAME_GROUPS,
+  SCHOOL_MODIFIERS,
+  SCHOOL_PREFIXES,
+  SCHOOL_SUFFIXES,
+  type ChinesePersonCategoryId,
+  type RandomNameCategory,
+  type RandomNameCategoryId,
+  type RandomNameGeneratorKind,
+  type RandomNameGroup,
+  type RandomNameGroupId,
+} from "../data/randomNameData";
+
 export type ChineseNameLength = 2 | 3;
-export type PlaceStyle = "ancient" | "modern";
 
 export interface RandomNameOptions {
-  target: RandomNameTarget;
-  personLanguage: PersonLanguage;
+  group: RandomNameGroupId;
+  categoryId: RandomNameCategoryId;
   chineseNameLength: ChineseNameLength;
-  placeStyle: PlaceStyle;
 }
 
-const CHINESE_SURNAMES = [
-  "林",
-  "苏",
-  "沈",
-  "顾",
-  "陆",
-  "谢",
-  "许",
-  "江",
-  "温",
-  "叶",
-  "周",
-  "赵",
-  "秦",
-  "宋",
-  "韩",
-  "孟",
-  "程",
-  "纪",
-  "姜",
-  "白",
-  "傅",
-  "乔",
-  "夏",
-  "唐",
-  "萧",
-  "楚",
-  "洛",
-  "云",
-  "黎",
-  "钟",
-  "徐",
-  "魏",
-  "薛",
-  "贺",
-  "梁",
-  "顾",
-  "宁",
-  "盛",
-  "闻",
-  "辛",
-];
-
-const CHINESE_GIVEN_CHARS = [
-  "安",
-  "然",
-  "清",
-  "宁",
-  "岚",
-  "晚",
-  "舟",
-  "遥",
-  "星",
-  "河",
-  "月",
-  "霁",
-  "初",
-  "微",
-  "棠",
-  "栀",
-  "禾",
-  "序",
-  "珩",
-  "璟",
-  "辞",
-  "砚",
-  "知",
-  "衍",
-  "殊",
-  "墨",
-  "景",
-  "澜",
-  "予",
-  "眠",
-  "晏",
-  "昭",
-  "照",
-  "一",
-  "临",
-  "野",
-  "川",
-  "回",
-  "声",
-  "洛",
-  "绾",
-  "梨",
-  "若",
-  "弦",
-  "栖",
-  "望",
-  "庭",
-  "竹",
-  "衡",
-  "尘",
-  "隽",
-  "瑶",
-  "翎",
-  "槿",
-  "烬",
-  "苍",
-  "迟",
-  "越",
-  "霜",
-  "旻",
-];
-
-const ENGLISH_FIRST_NAMES = [
-  "Aiden",
-  "Alice",
-  "Amelia",
-  "Arthur",
-  "Audrey",
-  "Blair",
-  "Caleb",
-  "Clara",
-  "Daphne",
-  "Elias",
-  "Evelyn",
-  "Felix",
-  "Flora",
-  "Gavin",
-  "Hazel",
-  "Iris",
-  "Julian",
-  "Lena",
-  "Leo",
-  "Mira",
-  "Nora",
-  "Oscar",
-  "Rhea",
-  "Rowan",
-  "Selene",
-  "Theo",
-  "Vera",
-  "Victor",
-];
-
-const ENGLISH_LAST_NAMES = [
-  "Ashford",
-  "Blackwood",
-  "Bright",
-  "Calloway",
-  "Carter",
-  "Everett",
-  "Fairchild",
-  "Gray",
-  "Hale",
-  "Hart",
-  "Hawthorne",
-  "Kingsley",
-  "Lancaster",
-  "Locke",
-  "Marlow",
-  "Montgomery",
-  "Pierce",
-  "Quinn",
-  "Reed",
-  "Sinclair",
-  "Sterling",
-  "Vaughn",
-  "Whitaker",
-  "Wilder",
-];
-
-const ANCIENT_PLACE_PREFIXES = [
-  "青",
-  "云",
-  "长",
-  "寒",
-  "落",
-  "望",
-  "归",
-  "扶",
-  "白",
-  "玄",
-  "朱",
-  "碎",
-  "听",
-  "藏",
-  "九",
-  "千",
-  "照",
-  "澜",
-  "鹤",
-  "栖",
-];
-
-const ANCIENT_PLACE_SUFFIXES = [
-  "州",
-  "郡",
-  "城",
-  "关",
-  "渡",
-  "谷",
-  "山",
-  "川",
-  "陵",
-  "台",
-  "宫",
-  "观",
-  "阁",
-  "坞",
-  "泽",
-  "原",
-  "坡",
-  "巷",
-  "镇",
-  "桥",
-];
-
-const MODERN_PLACE_PREFIXES = [
-  "星海",
-  "南岸",
-  "北城",
-  "新川",
-  "云港",
-  "澜湾",
-  "鹿鸣",
-  "青禾",
-  "望江",
-  "临安",
-  "海棠",
-  "锦程",
-  "东序",
-  "西洲",
-  "长宁",
-  "明湖",
-  "秋浦",
-  "晴川",
-];
-
-const MODERN_PLACE_SUFFIXES = [
-  "市",
-  "区",
-  "路",
-  "街",
-  "巷",
-  "湾",
-  "港",
-  "站",
-  "广场",
-  "花园",
-  "公寓",
-  "医院",
-  "大学",
-  "书店",
-  "影城",
-  "大厦",
-  "公园",
-  "码头",
-];
+const DEFAULT_CATEGORY_ID: ChinesePersonCategoryId = "person.chinese.modern";
 
 export function createDefaultRandomNameOptions(): RandomNameOptions {
   return {
-    target: "person",
-    personLanguage: "chinese",
+    group: "person",
+    categoryId: DEFAULT_CATEGORY_ID,
     chineseNameLength: 2,
-    placeStyle: "ancient",
+  };
+}
+
+export function listRandomNameGroups(): readonly RandomNameGroup[] {
+  return RANDOM_NAME_GROUPS;
+}
+
+export function listRandomNameCategories(group: RandomNameGroupId): readonly RandomNameCategory[] {
+  return RANDOM_NAME_CATEGORIES.filter((category) => category.group === group);
+}
+
+export function getRandomNameCategory(categoryId: RandomNameCategoryId): RandomNameCategory {
+  return findCategory(categoryId) ?? findCategory(DEFAULT_CATEGORY_ID)!;
+}
+
+export function normalizeRandomNameOptions(options: RandomNameOptions): RandomNameOptions {
+  const category = findCategory(options.categoryId);
+  if (!category || category.group !== options.group) {
+    const fallbackCategory = listRandomNameCategories(options.group)[0] ?? getRandomNameCategory(DEFAULT_CATEGORY_ID);
+    return {
+      group: fallbackCategory.group,
+      categoryId: fallbackCategory.id,
+      chineseNameLength: normalizeChineseNameLength(options.chineseNameLength),
+    };
+  }
+
+  return {
+    group: options.group,
+    categoryId: category.id,
+    chineseNameLength: normalizeChineseNameLength(options.chineseNameLength),
   };
 }
 
 export function generateRandomNames(options: RandomNameOptions, count = 12): string[] {
+  const normalizedOptions = normalizeRandomNameOptions(options);
   const names = new Set<string>();
   const limit = Math.max(1, count);
   let attempts = 0;
 
-  while (names.size < limit && attempts < limit * 20) {
+  while (names.size < limit && attempts < limit * 50) {
     attempts += 1;
-    names.add(generateOne(options));
+    names.add(generateOne(normalizedOptions));
   }
 
   return Array.from(names);
 }
 
 function generateOne(options: RandomNameOptions): string {
-  if (options.target === "place") {
-    return options.placeStyle === "ancient"
-      ? `${pick(ANCIENT_PLACE_PREFIXES)}${pick(ANCIENT_PLACE_SUFFIXES)}`
-      : `${pick(MODERN_PLACE_PREFIXES)}${pick(MODERN_PLACE_SUFFIXES)}`;
+  const category = getRandomNameCategory(options.categoryId);
+
+  if (category.generator === "chinesePerson") {
+    return generateChinesePersonName(category.id, options.chineseNameLength);
   }
 
-  if (options.personLanguage === "english") {
+  if (category.generator === "englishPerson") {
     return `${pick(ENGLISH_FIRST_NAMES)} ${pick(ENGLISH_LAST_NAMES)}`;
   }
 
-  const surname = pick(CHINESE_SURNAMES);
-  if (options.chineseNameLength === 2) {
-    return `${surname}${pick(CHINESE_GIVEN_CHARS)}`;
+  if (category.generator === "school") {
+    return generateSchoolName(category.id);
   }
 
-  return `${surname}${pick(CHINESE_GIVEN_CHARS)}${pick(CHINESE_GIVEN_CHARS)}`;
+  return generateCompoundPlaceName(category.id, category.generator);
+}
+
+function generateChinesePersonName(categoryId: RandomNameCategoryId, length: ChineseNameLength): string {
+  const pool = CHINESE_PERSON_NAME_POOLS[isChinesePersonCategory(categoryId) ? categoryId : DEFAULT_CATEGORY_ID];
+
+  if (length === 2) {
+    return `${pick(pool.singleSurnames)}${pick(pool.oneCharGivenNames)}`;
+  }
+
+  if (pool.compoundSurnames && Math.random() < 0.45) {
+    return `${pick(pool.compoundSurnames)}${pick(pool.oneCharGivenNames)}`;
+  }
+
+  return `${pick(pool.singleSurnames)}${pick(pool.twoCharGivenNames)}`;
+}
+
+function generateCompoundPlaceName(categoryId: RandomNameCategoryId, generator: RandomNameGeneratorKind): string {
+  if (generator !== "compoundPlace") {
+    throw new Error(`Unsupported compound place generator: ${generator}`);
+  }
+
+  if (!isCompoundPlaceCategory(categoryId)) {
+    return generateCompoundPlaceName("place.ancient", "compoundPlace");
+  }
+
+  const pool = COMPOUND_PLACE_POOLS[categoryId];
+  return `${pick(pool.prefixes)}${pick(pool.suffixes)}`;
+}
+
+function generateSchoolName(categoryId: RandomNameCategoryId): string {
+  const suffixes = isSchoolCategory(categoryId) ? SCHOOL_SUFFIXES[categoryId] : SCHOOL_SUFFIXES["school.general"];
+  const prefix = pick(SCHOOL_PREFIXES);
+  const suffix = pick(suffixes);
+  const modifier = pick(SCHOOL_MODIFIERS);
+
+  if (suffix.startsWith(prefix)) {
+    return suffix;
+  }
+
+  if (!modifier || prefix.includes(modifier) || suffix.includes(modifier)) {
+    return `${prefix}${suffix}`;
+  }
+
+  return `${prefix}${modifier}${suffix}`;
+}
+
+function findCategory(categoryId: RandomNameCategoryId): RandomNameCategory | undefined {
+  return RANDOM_NAME_CATEGORIES.find((category) => category.id === categoryId);
+}
+
+function normalizeChineseNameLength(length: ChineseNameLength): ChineseNameLength {
+  return length === 3 ? 3 : 2;
+}
+
+export function isChinesePersonCategory(categoryId: RandomNameCategoryId): categoryId is ChinesePersonCategoryId {
+  return categoryId in CHINESE_PERSON_NAME_POOLS;
+}
+
+function isCompoundPlaceCategory(categoryId: RandomNameCategoryId): categoryId is keyof typeof COMPOUND_PLACE_POOLS {
+  return categoryId in COMPOUND_PLACE_POOLS;
+}
+
+function isSchoolCategory(categoryId: RandomNameCategoryId): categoryId is keyof typeof SCHOOL_SUFFIXES {
+  return categoryId in SCHOOL_SUFFIXES;
 }
 
 function pick<T>(items: readonly T[]): T {
