@@ -2109,20 +2109,20 @@ ${PARAGRAPH_INDENT}`;
     if (!this.rootEl) {
       return;
     }
-    if (this.activeFontFamily) {
-      this.rootEl.style.setProperty("--wm-font-family", this.activeFontFamily);
-    } else {
-      this.rootEl.style.removeProperty("--wm-font-family");
-    }
-    this.rootEl.style.setProperty("--wm-font-size", `${this.activeFontSizePx}px`);
-    this.rootEl.style.setProperty("--wm-line-height", String(this.activeLineHeight));
+    this.rootEl.setCssProps({
+      "--wm-font-family": this.activeFontFamily || "var(--font-text, var(--font-interface))",
+      "--wm-font-size": `${this.activeFontSizePx}px`,
+      "--wm-line-height": String(this.activeLineHeight)
+    });
   }
   applyPanelLayout() {
     if (!this.rootEl || !this.bodyEl) {
       return;
     }
-    this.rootEl.style.setProperty("--wm-left-width", `${clampPanelWidth(this.chapterPanelWidth)}px`);
-    this.rootEl.style.setProperty("--wm-right-width", `${clampPanelWidth(this.statsPanelWidth)}px`);
+    this.rootEl.setCssProps({
+      "--wm-left-width": `${clampPanelWidth(this.chapterPanelWidth)}px`,
+      "--wm-right-width": `${clampPanelWidth(this.statsPanelWidth)}px`
+    });
     this.bodyEl.toggleClass("wm-left-hidden", !this.chapterPanelVisible);
     this.bodyEl.toggleClass("wm-right-hidden", !this.statsPanelVisible);
     if (this.chapterToggleButton) {
@@ -2270,12 +2270,15 @@ var ChapterRenameModal = class extends import_obsidian3.Modal {
     contentEl.createEl("h2", { text: "\u91CD\u547D\u540D\u7AE0\u8282" });
     contentEl.createEl("p", { cls: "wm-settings-description", text: "\u4EC5\u4FEE\u6539\u6587\u4EF6\u540D\uFF0C\u4FDD\u7559 .md \u6269\u5C55\u540D\u3002" });
     let inputValue = this.file.basename;
-    const nameSetting = new import_obsidian3.Setting(contentEl).setName("\u7AE0\u8282\u540D\u79F0").setDesc("\u53EF\u4EE5\u76F4\u63A5\u8F93\u5165\u540D\u79F0\uFF0C\u4E5F\u53EF\u4EE5\u5E26 .md \u540E\u7F00\u3002").addText((text) => {
+    const errorEl = contentEl.createDiv({ cls: "wm-modal-error" });
+    errorEl.hide();
+    new import_obsidian3.Setting(contentEl).setName("\u7AE0\u8282\u540D\u79F0").setDesc("\u53EF\u4EE5\u76F4\u63A5\u8F93\u5165\u540D\u79F0\uFF0C\u4E5F\u53EF\u4EE5\u5E26 .md \u540E\u7F00\u3002").addText((text) => {
       text.setValue(inputValue);
       text.inputEl.select();
       text.onChange((value) => {
         inputValue = value;
-        nameSetting.setErrorMessage(null);
+        errorEl.hide();
+        errorEl.setText("");
       });
       text.inputEl.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {
@@ -2292,7 +2295,8 @@ var ChapterRenameModal = class extends import_obsidian3.Modal {
       try {
         const error = await this.onSubmit(inputValue);
         if (error) {
-          nameSetting.setErrorMessage(error);
+          errorEl.setText(error);
+          errorEl.show();
           return;
         }
         this.close();
@@ -2374,30 +2378,32 @@ function clampPanelWidth(width) {
   return Math.round(clamp(width, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH));
 }
 function copyTextareaLayoutStyles(editor, mirror, style) {
-  mirror.style.position = "absolute";
-  mirror.style.top = "0";
-  mirror.style.left = "0";
-  mirror.style.width = style.width;
-  mirror.style.height = "auto";
-  mirror.style.minHeight = "0";
-  mirror.style.maxHeight = "none";
-  mirror.style.visibility = "hidden";
-  mirror.style.pointerEvents = "none";
-  mirror.style.overflow = "hidden";
-  mirror.style.whiteSpace = "pre-wrap";
-  mirror.style.overflowWrap = "break-word";
-  mirror.style.wordBreak = "break-word";
-  mirror.style.boxSizing = style.boxSizing;
-  mirror.style.padding = style.padding;
-  mirror.style.border = style.border;
-  mirror.style.fontFamily = style.fontFamily;
-  mirror.style.fontSize = style.fontSize;
-  mirror.style.fontWeight = style.fontWeight;
-  mirror.style.fontStyle = style.fontStyle;
-  mirror.style.lineHeight = style.lineHeight;
-  mirror.style.letterSpacing = style.letterSpacing;
-  mirror.style.textTransform = style.textTransform;
-  mirror.style.tabSize = style.tabSize;
+  mirror.setCssStyles({
+    position: "absolute",
+    top: "0",
+    left: "0",
+    width: style.width,
+    height: "auto",
+    minHeight: "0",
+    maxHeight: "none",
+    visibility: "hidden",
+    pointerEvents: "none",
+    overflow: "hidden",
+    whiteSpace: "pre-wrap",
+    overflowWrap: "break-word",
+    wordBreak: "break-word",
+    boxSizing: style.boxSizing,
+    padding: style.padding,
+    border: style.border,
+    fontFamily: style.fontFamily,
+    fontSize: style.fontSize,
+    fontWeight: style.fontWeight,
+    fontStyle: style.fontStyle,
+    lineHeight: style.lineHeight,
+    letterSpacing: style.letterSpacing,
+    textTransform: style.textTransform,
+    tabSize: style.tabSize
+  });
 }
 function diffPrefix(kind) {
   if (kind === "added") {

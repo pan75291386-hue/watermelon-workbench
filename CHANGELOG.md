@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.7
+
+### Fixed
+
+- Updated the minimum supported Obsidian version to match the chapter deletion API used for safe trash handling.
+- Replaced rename-modal error handling with a compatibility-friendly inline message.
+- Switched caret mirror style assignment to Obsidian's recommended `setCssStyles()` helper for community review compatibility.
+
 ## 0.1.6
 
 ### Added

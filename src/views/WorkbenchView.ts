@@ -1276,13 +1276,11 @@ export class WorkbenchView extends TextFileView {
       return;
     }
 
-    if (this.activeFontFamily) {
-      this.rootEl.style.setProperty("--wm-font-family", this.activeFontFamily);
-    } else {
-      this.rootEl.style.removeProperty("--wm-font-family");
-    }
-    this.rootEl.style.setProperty("--wm-font-size", `${this.activeFontSizePx}px`);
-    this.rootEl.style.setProperty("--wm-line-height", String(this.activeLineHeight));
+    this.rootEl.setCssProps({
+      "--wm-font-family": this.activeFontFamily || "var(--font-text, var(--font-interface))",
+      "--wm-font-size": `${this.activeFontSizePx}px`,
+      "--wm-line-height": String(this.activeLineHeight),
+    });
   }
 
   private applyPanelLayout(): void {
@@ -1290,8 +1288,10 @@ export class WorkbenchView extends TextFileView {
       return;
     }
 
-    this.rootEl.style.setProperty("--wm-left-width", `${clampPanelWidth(this.chapterPanelWidth)}px`);
-    this.rootEl.style.setProperty("--wm-right-width", `${clampPanelWidth(this.statsPanelWidth)}px`);
+    this.rootEl.setCssProps({
+      "--wm-left-width": `${clampPanelWidth(this.chapterPanelWidth)}px`,
+      "--wm-right-width": `${clampPanelWidth(this.statsPanelWidth)}px`,
+    });
 
     this.bodyEl.toggleClass("wm-left-hidden", !this.chapterPanelVisible);
     this.bodyEl.toggleClass("wm-right-hidden", !this.statsPanelVisible);
@@ -1476,7 +1476,10 @@ class ChapterRenameModal extends Modal {
     contentEl.createEl("p", { cls: "wm-settings-description", text: "仅修改文件名，保留 .md 扩展名。" });
 
     let inputValue = this.file.basename;
-    const nameSetting = new Setting(contentEl)
+    const errorEl = contentEl.createDiv({ cls: "wm-modal-error" });
+    errorEl.hide();
+
+    new Setting(contentEl)
       .setName("章节名称")
       .setDesc("可以直接输入名称，也可以带 .md 后缀。")
       .addText((text) => {
@@ -1484,7 +1487,8 @@ class ChapterRenameModal extends Modal {
         text.inputEl.select();
         text.onChange((value) => {
           inputValue = value;
-          nameSetting.setErrorMessage(null);
+          errorEl.hide();
+          errorEl.setText("");
         });
         text.inputEl.addEventListener("keydown", (event) => {
           if (event.key === "Enter") {
@@ -1503,7 +1507,8 @@ class ChapterRenameModal extends Modal {
       try {
         const error = await this.onSubmit(inputValue);
         if (error) {
-          nameSetting.setErrorMessage(error);
+          errorEl.setText(error);
+          errorEl.show();
           return;
         }
 
@@ -1622,30 +1627,32 @@ function parseCssPx(value: string, fallback: number): number {
 }
 
 function copyTextareaLayoutStyles(editor: HTMLTextAreaElement, mirror: HTMLDivElement, style: CSSStyleDeclaration): void {
-  mirror.style.position = "absolute";
-  mirror.style.top = "0";
-  mirror.style.left = "0";
-  mirror.style.width = style.width;
-  mirror.style.height = "auto";
-  mirror.style.minHeight = "0";
-  mirror.style.maxHeight = "none";
-  mirror.style.visibility = "hidden";
-  mirror.style.pointerEvents = "none";
-  mirror.style.overflow = "hidden";
-  mirror.style.whiteSpace = "pre-wrap";
-  mirror.style.overflowWrap = "break-word";
-  mirror.style.wordBreak = "break-word";
-  mirror.style.boxSizing = style.boxSizing;
-  mirror.style.padding = style.padding;
-  mirror.style.border = style.border;
-  mirror.style.fontFamily = style.fontFamily;
-  mirror.style.fontSize = style.fontSize;
-  mirror.style.fontWeight = style.fontWeight;
-  mirror.style.fontStyle = style.fontStyle;
-  mirror.style.lineHeight = style.lineHeight;
-  mirror.style.letterSpacing = style.letterSpacing;
-  mirror.style.textTransform = style.textTransform;
-  mirror.style.tabSize = style.tabSize;
+  mirror.setCssStyles({
+    position: "absolute",
+    top: "0",
+    left: "0",
+    width: style.width,
+    height: "auto",
+    minHeight: "0",
+    maxHeight: "none",
+    visibility: "hidden",
+    pointerEvents: "none",
+    overflow: "hidden",
+    whiteSpace: "pre-wrap",
+    overflowWrap: "break-word",
+    wordBreak: "break-word",
+    boxSizing: style.boxSizing,
+    padding: style.padding,
+    border: style.border,
+    fontFamily: style.fontFamily,
+    fontSize: style.fontSize,
+    fontWeight: style.fontWeight,
+    fontStyle: style.fontStyle,
+    lineHeight: style.lineHeight,
+    letterSpacing: style.letterSpacing,
+    textTransform: style.textTransform,
+    tabSize: style.tabSize,
+  });
 }
 
 function diffPrefix(kind: SnapshotDiffLine["kind"]): string {

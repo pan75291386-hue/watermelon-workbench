@@ -1,8 +1,8 @@
 {
   "id": "watermelon-workbench",
   "name": "Watermelon Workbench",
-  "version": "0.1.6",
-  "minAppVersion": "1.6.0",
+  "version": "0.1.7",
+  "minAppVersion": "1.6.6",
   "description": "A cozy novel-writing workbench with chapter navigation, local name generation, time-machine backups, and live writing stats.",
   "author": "pan",
   "authorUrl": "https://github.com/pan75291386-hue",

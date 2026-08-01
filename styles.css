@@ -518,6 +518,13 @@
   line-height: 1.6;
 }
 
+.wm-modal-error {
+  margin: 8px 0 0;
+  color: var(--text-error);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 @media (max-width: 1100px) {
   .wm-body,
   .wm-body.wm-left-hidden,
