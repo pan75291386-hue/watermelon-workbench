@@ -29,7 +29,7 @@ var import_obsidian4 = require("obsidian");
 var import_obsidian = require("obsidian");
 var DEFAULT_SETTINGS = {
   manuscriptRoot: "",
-  defaultFontFamily: '"Source Han Serif SC", "Noto Serif SC", SimSun, serif',
+  defaultFontFamily: "",
   defaultFontSizePx: 22,
   defaultLineHeight: 1.8,
   showChapterPanel: true,
@@ -55,9 +55,9 @@ var WatermelonSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.saveSettings();
       });
     });
-    new import_obsidian.Setting(containerEl).setName("Default font family").setDesc("Used only inside the workbench editor view.").addText((text) => {
-      text.setPlaceholder('"Source Han Serif SC", SimSun, serif').setValue(this.plugin.settings.defaultFontFamily).onChange(async (value) => {
-        this.plugin.settings.defaultFontFamily = value.trim() || DEFAULT_SETTINGS.defaultFontFamily;
+    new import_obsidian.Setting(containerEl).setName("Workbench font").setDesc("\u7559\u7A7A\u5219\u8DDF\u968F Obsidian \u6B63\u6587\u5B57\u4F53\uFF1B\u4E5F\u53EF\u4EE5\u8F93\u5165\u672C\u673A\u5DF2\u5B89\u88C5\u5B57\u4F53\u540D\u79F0\uFF0C\u4F8B\u5982\uFF1A\u971E\u9E5C\u6587\u6977\u3001Microsoft YaHei\u3001SimSun\u3002").addText((text) => {
+      text.setPlaceholder("\u8DDF\u968F Obsidian\uFF0C\u6216\u8F93\u5165\u672C\u5730\u5B57\u4F53\u540D\u79F0").setValue(this.plugin.settings.defaultFontFamily).onChange(async (value) => {
+        this.plugin.settings.defaultFontFamily = normalizeFontFamilyInput(value);
         await this.plugin.saveSettings();
       });
     });
@@ -112,6 +112,16 @@ var WatermelonSettingTab = class extends import_obsidian.PluginSettingTab {
 function normalizeRootInput(value) {
   const trimmed = value.trim();
   return trimmed ? (0, import_obsidian.normalizePath)(trimmed) : "";
+}
+function normalizeFontFamilyInput(value) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (trimmed.includes(",") || trimmed.startsWith('"') || trimmed.startsWith("'")) {
+    return trimmed;
+  }
+  return `"${trimmed.replace(/"/g, '\\"')}"`;
 }
 
 // src/views/WorkbenchView.ts
@@ -696,9 +706,13 @@ function prefixSelectedLines(value, selectionStart, selectionEnd, prefix) {
 var PARAGRAPH_INDENT = "\u3000\u3000";
 var WORKBENCH_VIEW_TYPE = "watermelon-workbench";
 var FONT_PRESETS = [
+  "",
+  '"LXGW WenKai", "\u971E\u9E5C\u6587\u6977", cursive',
   '"Source Han Serif SC", "Noto Serif SC", SimSun, serif',
   '"Source Han Sans SC", "Noto Sans SC", sans-serif',
   '"Microsoft YaHei", "PingFang SC", sans-serif',
+  '"SimSun", "\u5B8B\u4F53", serif',
+  '"FangSong", "\u4EFF\u5B8B", serif',
   'Georgia, "Times New Roman", serif'
 ];
 var FONT_SIZE_PRESETS = [16, 18, 20, 22, 24, 26, 28, 30];
@@ -916,6 +930,13 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
       });
     });
     fontSelect.value = this.activeFontFamily;
+    if (fontSelect.value !== this.activeFontFamily) {
+      fontSelect.createEl("option", {
+        value: this.activeFontFamily,
+        text: prettyFontName(this.activeFontFamily)
+      });
+      fontSelect.value = this.activeFontFamily;
+    }
     this.registerDomEvent(fontSelect, "change", async () => {
       this.activeFontFamily = fontSelect.value;
       this.plugin.settings.defaultFontFamily = fontSelect.value;
@@ -1446,7 +1467,11 @@ ${PARAGRAPH_INDENT}`;
     if (!this.rootEl) {
       return;
     }
-    this.rootEl.style.setProperty("--wm-font-family", this.activeFontFamily);
+    if (this.activeFontFamily) {
+      this.rootEl.style.setProperty("--wm-font-family", this.activeFontFamily);
+    } else {
+      this.rootEl.style.removeProperty("--wm-font-family");
+    }
     this.rootEl.style.setProperty("--wm-font-size", `${this.activeFontSizePx}px`);
     this.rootEl.style.setProperty("--wm-line-height", String(this.activeLineHeight));
   }
@@ -1591,6 +1616,9 @@ ${PARAGRAPH_INDENT}`;
   }
 };
 function prettyFontName(fontFamily) {
+  if (!fontFamily) {
+    return "\u8DDF\u968F Obsidian";
+  }
   const firstPart = fontFamily.split(",")[0]?.trim() ?? fontFamily;
   return firstPart.replace(/^"|"$/g, "");
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5
+
+### Changed
+
+- Made the workbench editor follow Obsidian's text font by default.
+- Added clearer local font configuration for installed fonts such as LXGW WenKai, SimSun, and Microsoft YaHei.
+- Added a "follow Obsidian" font option to the workbench toolbar.
+
 ## 0.1.4
 
 ### Changed

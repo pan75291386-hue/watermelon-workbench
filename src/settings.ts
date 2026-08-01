@@ -19,7 +19,7 @@ export interface WatermelonSettings {
 
 export const DEFAULT_SETTINGS: WatermelonSettings = {
   manuscriptRoot: "",
-  defaultFontFamily: "\"Source Han Serif SC\", \"Noto Serif SC\", SimSun, serif",
+  defaultFontFamily: "",
   defaultFontSizePx: 22,
   defaultLineHeight: 1.8,
   showChapterPanel: true,
@@ -62,14 +62,14 @@ export class WatermelonSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Default font family")
-      .setDesc("Used only inside the workbench editor view.")
+      .setName("Workbench font")
+      .setDesc("留空则跟随 Obsidian 正文字体；也可以输入本机已安装字体名称，例如：霞鹜文楷、Microsoft YaHei、SimSun。")
       .addText((text) => {
         text
-          .setPlaceholder('"Source Han Serif SC", SimSun, serif')
+          .setPlaceholder("跟随 Obsidian，或输入本地字体名称")
           .setValue(this.plugin.settings.defaultFontFamily)
           .onChange(async (value) => {
-            this.plugin.settings.defaultFontFamily = value.trim() || DEFAULT_SETTINGS.defaultFontFamily;
+            this.plugin.settings.defaultFontFamily = normalizeFontFamilyInput(value);
             await this.plugin.saveSettings();
           });
       });
@@ -151,4 +151,17 @@ export class WatermelonSettingTab extends PluginSettingTab {
 function normalizeRootInput(value: string): string {
   const trimmed = value.trim();
   return trimmed ? normalizePath(trimmed) : "";
+}
+
+function normalizeFontFamilyInput(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  if (trimmed.includes(",") || trimmed.startsWith("\"") || trimmed.startsWith("'")) {
+    return trimmed;
+  }
+
+  return `"${trimmed.replace(/"/g, "\\\"")}"`;
 }

@@ -52,9 +52,13 @@ interface SessionRuntimeState {
 }
 
 const FONT_PRESETS = [
+  "",
+  '"LXGW WenKai", "霞鹜文楷", cursive',
   '"Source Han Serif SC", "Noto Serif SC", SimSun, serif',
   '"Source Han Sans SC", "Noto Sans SC", sans-serif',
   '"Microsoft YaHei", "PingFang SC", sans-serif',
+  '"SimSun", "宋体", serif',
+  '"FangSong", "仿宋", serif',
   'Georgia, "Times New Roman", serif',
 ] as const;
 
@@ -334,6 +338,13 @@ export class WorkbenchView extends TextFileView {
       });
     });
     fontSelect.value = this.activeFontFamily;
+    if (fontSelect.value !== this.activeFontFamily) {
+      fontSelect.createEl("option", {
+        value: this.activeFontFamily,
+        text: prettyFontName(this.activeFontFamily),
+      });
+      fontSelect.value = this.activeFontFamily;
+    }
     this.registerDomEvent(fontSelect, "change", async () => {
       this.activeFontFamily = fontSelect.value;
       this.plugin.settings.defaultFontFamily = fontSelect.value;
@@ -952,7 +963,11 @@ export class WorkbenchView extends TextFileView {
       return;
     }
 
-    this.rootEl.style.setProperty("--wm-font-family", this.activeFontFamily);
+    if (this.activeFontFamily) {
+      this.rootEl.style.setProperty("--wm-font-family", this.activeFontFamily);
+    } else {
+      this.rootEl.style.removeProperty("--wm-font-family");
+    }
     this.rootEl.style.setProperty("--wm-font-size", `${this.activeFontSizePx}px`);
     this.rootEl.style.setProperty("--wm-line-height", String(this.activeLineHeight));
   }
@@ -1131,6 +1146,10 @@ export class WorkbenchView extends TextFileView {
 }
 
 function prettyFontName(fontFamily: string): string {
+  if (!fontFamily) {
+    return "跟随 Obsidian";
+  }
+
   const firstPart = fontFamily.split(",")[0]?.trim() ?? fontFamily;
   return firstPart.replace(/^"|"$/g, "");
 }

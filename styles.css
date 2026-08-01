@@ -3,7 +3,7 @@
 }
 
 .wm-workbench {
-  --wm-font-family: "Source Han Serif SC", "Noto Serif SC", SimSun, serif;
+  --wm-font-family: var(--font-text, var(--font-interface));
   --wm-font-size: 22px;
   --wm-line-height: 1.8;
   --wm-left-width: 260px;
