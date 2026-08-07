@@ -23,7 +23,7 @@ Watermelon Workbench is a cozy long-form writing workspace for Obsidian. It keep
 
 ### ✍️ Writing-friendly indentation
 
-- Press Enter and the next line starts at a Chinese-style first-line indent position.
+- Use the top-toolbar “首行缩进” button to choose whether Enter automatically starts the next line at a Chinese-style first-line indent position.
 - The indent is for the workbench writing experience; saved Markdown stays clean.
 - Legacy full-width indent characters inserted by earlier builds are normalized when opening files.
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.8
+
+### Added
+
+- Added a persistent top-toolbar toggle for choosing whether the writing editor automatically applies Chinese-style first-line indentation.
+- Preserved normal line breaks and manually entered indentation when automatic first-line indentation is disabled.
+
 ## 0.1.7
 
 ### Fixed

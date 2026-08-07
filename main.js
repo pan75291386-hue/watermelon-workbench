@@ -32,6 +32,7 @@ var DEFAULT_SETTINGS = {
   defaultFontFamily: "",
   defaultFontSizePx: 22,
   defaultLineHeight: 1.8,
+  autoParagraphIndent: true,
   showChapterPanel: true,
   showStatsPanel: true,
   chapterPanelWidth: 260,
@@ -1146,6 +1147,7 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
     this.activeFontFamily = plugin.settings.defaultFontFamily;
     this.activeFontSizePx = plugin.settings.defaultFontSizePx;
     this.activeLineHeight = plugin.settings.defaultLineHeight;
+    this.autoIndentEnabled = plugin.settings.autoParagraphIndent;
   }
   getViewType() {
     return WORKBENCH_VIEW_TYPE;
@@ -1157,7 +1159,7 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
     return "notebook-pen";
   }
   getViewData() {
-    return this.editorEl ? getPlainEditorText(this.editorEl.value) : this.data ?? "";
+    return this.editorEl ? this.getCurrentEditorText() : this.data ?? "";
   }
   setViewData(data, clear) {
     if (clear) {
@@ -1165,7 +1167,7 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
     }
     this.data = data;
     if (this.editorEl) {
-      this.editorEl.value = formatEditorDisplayText(data);
+      this.editorEl.value = this.autoIndentEnabled ? formatEditorDisplayText(data) : data;
     }
     this.updateHeaderState();
     this.updateStats();
@@ -1230,6 +1232,7 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
     this.activeFontFamily = this.plugin.settings.defaultFontFamily;
     this.activeFontSizePx = this.plugin.settings.defaultFontSizePx;
     this.activeLineHeight = this.plugin.settings.defaultLineHeight;
+    this.applyAutoIndentMode(this.plugin.settings.autoParagraphIndent);
     this.refreshChapterList();
     this.applyTypography();
     this.applyPanelLayout();
@@ -1244,7 +1247,8 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
     }
     this.selectedChapterPath = file.path;
     this.file = file;
-    const contents = normalizeLegacyParagraphSpacing(await this.app.vault.cachedRead(file));
+    const sourceText = await this.app.vault.cachedRead(file);
+    const contents = this.autoIndentEnabled ? normalizeLegacyParagraphSpacing(sourceText) : sourceText;
     this.setViewData(contents, true);
     this.resetSessionStats(contents);
     this.lastSnapshotWords = countWritingCharacters(contents);
@@ -1377,6 +1381,18 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
     this.createToolbarButton(formatGroup, "H1", "\u6807\u9898", () => this.applyCommand("heading"));
     this.createToolbarButton(formatGroup, "\u275D", "\u5F15\u7528", () => this.applyCommand("quote"));
     this.createToolbarButton(formatGroup, "\u2022", "\u5217\u8868", () => this.applyCommand("bullet"));
+    this.autoIndentToggleButton = formatGroup.createEl("button", {
+      cls: "wm-toolbar-button wm-auto-indent-button",
+      text: "\u9996\u884C\u7F29\u8FDB",
+      attr: { type: "button", "aria-label": "\u81EA\u52A8\u9996\u884C\u7F29\u8FDB" }
+    });
+    this.updateAutoIndentButtonState();
+    this.registerDomEvent(this.autoIndentToggleButton, "click", () => {
+      const enabled = !this.autoIndentEnabled;
+      this.applyAutoIndentMode(enabled);
+      this.plugin.settings.autoParagraphIndent = enabled;
+      void this.plugin.saveSettings();
+    });
     const rightGroup = this.toolbarEl.createDiv({ cls: "wm-toolbar-group wm-toolbar-group-right" });
     this.chapterToggleButton = rightGroup.createEl("button", {
       cls: "clickable-icon wm-icon-button",
@@ -1596,7 +1612,7 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
       if (event.isComposing) {
         return;
       }
-      if (event.key === "Enter") {
+      if (event.key === "Enter" && this.autoIndentEnabled) {
         event.preventDefault();
         this.insertIndentedLineBreak();
         return;
@@ -1631,7 +1647,7 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
     this.updateSessionDurations(now);
     this.sessionState.lastActivityAt = now;
     this.normalizeEditorDisplay();
-    this.data = getPlainEditorText(this.editorEl.value);
+    this.data = this.getCurrentEditorText();
     this.updateStats();
     this.requestSave();
     this.keepCursorInComfortZone();
@@ -1676,6 +1692,9 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
     return this.caretMirrorEl;
   }
   normalizeEditorDisplay() {
+    if (!this.autoIndentEnabled) {
+      return;
+    }
     const cursor = this.editorEl.selectionStart ?? 0;
     const currentValue = this.editorEl.value;
     const formatted = formatEditorDisplayTextWithCursor(currentValue, cursor);
@@ -1684,6 +1703,50 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
     }
     this.editorEl.value = formatted.value;
     this.editorEl.setSelectionRange(formatted.cursor, formatted.cursor);
+  }
+  getCurrentEditorText() {
+    return this.autoIndentEnabled ? getPlainEditorText(this.editorEl.value) : this.editorEl.value;
+  }
+  applyAutoIndentMode(enabled) {
+    if (this.autoIndentEnabled === enabled) {
+      this.updateAutoIndentButtonState();
+      return;
+    }
+    if (!this.editorEl) {
+      this.autoIndentEnabled = enabled;
+      return;
+    }
+    const value = this.editorEl.value;
+    const selectionStart = this.editorEl.selectionStart ?? 0;
+    const selectionEnd = this.editorEl.selectionEnd ?? 0;
+    const plainValue = this.autoIndentEnabled ? getPlainEditorText(value) : value;
+    const plainSelectionStart = this.autoIndentEnabled ? getPlainEditorText(value.slice(0, selectionStart)).length : selectionStart;
+    const plainSelectionEnd = this.autoIndentEnabled ? getPlainEditorText(value.slice(0, selectionEnd)).length : selectionEnd;
+    this.autoIndentEnabled = enabled;
+    if (enabled) {
+      this.editorEl.value = formatPlainEditorDisplayText(plainValue);
+      this.editorEl.setSelectionRange(
+        getFormattedEditorCursor(plainValue, plainSelectionStart),
+        getFormattedEditorCursor(plainValue, plainSelectionEnd)
+      );
+    } else {
+      this.editorEl.value = plainValue;
+      this.editorEl.setSelectionRange(plainSelectionStart, plainSelectionEnd);
+    }
+    this.data = this.getCurrentEditorText();
+    this.updateAutoIndentButtonState();
+    this.updateStats();
+  }
+  updateAutoIndentButtonState() {
+    if (!this.autoIndentToggleButton) {
+      return;
+    }
+    this.autoIndentToggleButton.classList.toggle("is-active", this.autoIndentEnabled);
+    this.autoIndentToggleButton.setAttribute("aria-pressed", String(this.autoIndentEnabled));
+    this.autoIndentToggleButton.setAttribute(
+      "title",
+      this.autoIndentEnabled ? "\u81EA\u52A8\u9996\u884C\u7F29\u8FDB\uFF1A\u5DF2\u5F00\u542F" : "\u81EA\u52A8\u9996\u884C\u7F29\u8FDB\uFF1A\u5DF2\u5173\u95ED"
+    );
   }
   insertIndentedLineBreak() {
     const selectionStart = this.editorEl.selectionStart ?? 0;
@@ -1780,7 +1843,7 @@ ${PARAGRAPH_INDENT}`;
       await this.refreshTimeMachineSnapshots();
       return;
     }
-    const diff = await buildSnapshotDiff(this.plugin, snapshotFile, getPlainEditorText(this.editorEl.value));
+    const diff = await buildSnapshotDiff(this.plugin, snapshotFile, this.getCurrentEditorText());
     this.renderSnapshotDiff(diff);
   }
   renderSnapshotDiff(diff) {
@@ -1803,7 +1866,7 @@ ${PARAGRAPH_INDENT}`;
     }
     const snapshotText = await this.app.vault.cachedRead(snapshotFile);
     await this.saveManualTimeMachineSnapshot(false);
-    this.editorEl.value = formatEditorDisplayText(snapshotText);
+    this.editorEl.value = this.autoIndentEnabled ? formatEditorDisplayText(snapshotText) : snapshotText;
     this.handleEditorMutation();
     this.lastSnapshotWords = countWritingCharacters(snapshotText);
     this.lastSnapshotCreatedAt = Date.now();
@@ -1815,7 +1878,7 @@ ${PARAGRAPH_INDENT}`;
       new import_obsidian3.Notice("\u8BF7\u5148\u6253\u5F00\u4E00\u4E2A Markdown \u7AE0\u8282\u3002");
       return;
     }
-    const text = getPlainEditorText(this.editorEl.value);
+    const text = this.getCurrentEditorText();
     const snapshot = await createTimeMachineSnapshot(this.plugin, this.file, text, { kind: "manual" });
     this.lastSnapshotWords = snapshot.wordCount;
     this.lastSnapshotCreatedAt = snapshot.createdAt;
@@ -1833,7 +1896,7 @@ ${PARAGRAPH_INDENT}`;
       const snapshotState = await maybeCreateTimeMachineSnapshot(
         this.plugin,
         this.file,
-        getPlainEditorText(this.editorEl.value),
+        this.getCurrentEditorText(),
         this.lastSnapshotWords,
         this.lastSnapshotCreatedAt
       );
@@ -1857,7 +1920,7 @@ ${PARAGRAPH_INDENT}`;
       this.chapters.filter((file) => file.path !== activeFilePath).map(async (file) => computeWritingStats(await this.app.vault.cachedRead(file)).words)
     );
     this.otherChaptersWords = totals.reduce((total, words) => total + words, 0);
-    this.novelTotalWords = this.otherChaptersWords + computeWritingStats(this.editorEl ? getPlainEditorText(this.editorEl.value) : this.data ?? "").words;
+    this.novelTotalWords = this.otherChaptersWords + computeWritingStats(this.editorEl ? this.getCurrentEditorText() : this.data ?? "").words;
     this.updateStats();
   }
   renderChapterItems() {
@@ -2071,7 +2134,7 @@ ${PARAGRAPH_INDENT}`;
     if (!this.statsBodyEl) {
       return;
     }
-    const staticStats = computeWritingStats(this.editorEl ? getPlainEditorText(this.editorEl.value) : this.data ?? "");
+    const staticStats = computeWritingStats(this.editorEl ? this.getCurrentEditorText() : this.data ?? "");
     const sessionStats = this.getSessionStats(staticStats.words);
     this.novelTotalWords = this.otherChaptersWords + staticStats.words;
     const rows = this.buildStatsRows(staticStats, sessionStats);
@@ -2328,13 +2391,31 @@ function normalizeLegacyParagraphSpacing(text) {
 }
 function formatEditorDisplayText(text) {
   const originalLines = text.split("\n");
-  return getPlainEditorText(text).split("\n").map((line, index) => {
+  return formatPlainEditorDisplayText(getPlainEditorText(text), originalLines);
+}
+function formatPlainEditorDisplayText(text, originalLines = text.split("\n")) {
+  return text.split("\n").map((line, index) => {
     if (line.trim()) {
       return `${PARAGRAPH_INDENT}${line}`;
     }
     const originalLine = originalLines[index] ?? "";
     return originalLine.startsWith(PARAGRAPH_INDENT) ? PARAGRAPH_INDENT : line;
   }).join("\n");
+}
+function getFormattedEditorCursor(text, cursor) {
+  const boundedCursor = Math.min(Math.max(cursor, 0), text.length);
+  let formattedCursor = boundedCursor;
+  let lineStart = 0;
+  for (const line of text.split("\n")) {
+    if (lineStart > boundedCursor) {
+      break;
+    }
+    if (line.trim()) {
+      formattedCursor += PARAGRAPH_INDENT.length;
+    }
+    lineStart += line.length + 1;
+  }
+  return formattedCursor;
 }
 function formatEditorDisplayTextWithCursor(text, cursor) {
   const before = text.slice(0, cursor);

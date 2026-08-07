@@ -67,6 +67,12 @@
   cursor: pointer;
 }
 
+.wm-auto-indent-button.is-active {
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+}
+
 .wm-exit-button {
   color: var(--text-on-accent);
   background: var(--interactive-accent);

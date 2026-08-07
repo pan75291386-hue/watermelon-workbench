@@ -97,6 +97,7 @@ export class WorkbenchView extends TextFileView {
   private timeMachineDiffEl!: HTMLDivElement;
   private chapterToggleButton!: HTMLButtonElement;
   private statsToggleButton!: HTMLButtonElement;
+  private autoIndentToggleButton!: HTMLButtonElement;
   private chapterPanelVisible: boolean;
   private statsPanelVisible: boolean;
   private chapterPanelWidth: number;
@@ -104,6 +105,7 @@ export class WorkbenchView extends TextFileView {
   private activeFontFamily: string;
   private activeFontSizePx: number;
   private activeLineHeight: number;
+  private autoIndentEnabled: boolean;
   private chapters: TFile[] = [];
   private selectedChapterPath: string | null = null;
   private scopeMode: ScopeMode = "single-file";
@@ -130,6 +132,7 @@ export class WorkbenchView extends TextFileView {
     this.activeFontFamily = plugin.settings.defaultFontFamily;
     this.activeFontSizePx = plugin.settings.defaultFontSizePx;
     this.activeLineHeight = plugin.settings.defaultLineHeight;
+    this.autoIndentEnabled = plugin.settings.autoParagraphIndent;
   }
 
   override getViewType(): string {
@@ -145,7 +148,7 @@ export class WorkbenchView extends TextFileView {
   }
 
   override getViewData(): string {
-    return this.editorEl ? getPlainEditorText(this.editorEl.value) : this.data ?? "";
+    return this.editorEl ? this.getCurrentEditorText() : this.data ?? "";
   }
 
   override setViewData(data: string, clear: boolean): void {
@@ -155,7 +158,7 @@ export class WorkbenchView extends TextFileView {
 
     this.data = data;
     if (this.editorEl) {
-      this.editorEl.value = formatEditorDisplayText(data);
+      this.editorEl.value = this.autoIndentEnabled ? formatEditorDisplayText(data) : data;
     }
     this.updateHeaderState();
     this.updateStats();
@@ -230,6 +233,7 @@ export class WorkbenchView extends TextFileView {
     this.activeFontFamily = this.plugin.settings.defaultFontFamily;
     this.activeFontSizePx = this.plugin.settings.defaultFontSizePx;
     this.activeLineHeight = this.plugin.settings.defaultLineHeight;
+    this.applyAutoIndentMode(this.plugin.settings.autoParagraphIndent);
     this.refreshChapterList();
     this.applyTypography();
     this.applyPanelLayout();
@@ -247,7 +251,8 @@ export class WorkbenchView extends TextFileView {
 
     this.selectedChapterPath = file.path;
     this.file = file;
-    const contents = normalizeLegacyParagraphSpacing(await this.app.vault.cachedRead(file));
+    const sourceText = await this.app.vault.cachedRead(file);
+    const contents = this.autoIndentEnabled ? normalizeLegacyParagraphSpacing(sourceText) : sourceText;
     this.setViewData(contents, true);
     this.resetSessionStats(contents);
     this.lastSnapshotWords = countWritingCharacters(contents);
@@ -398,6 +403,18 @@ export class WorkbenchView extends TextFileView {
     this.createToolbarButton(formatGroup, "H1", "标题", () => this.applyCommand("heading"));
     this.createToolbarButton(formatGroup, "❝", "引用", () => this.applyCommand("quote"));
     this.createToolbarButton(formatGroup, "•", "列表", () => this.applyCommand("bullet"));
+    this.autoIndentToggleButton = formatGroup.createEl("button", {
+      cls: "wm-toolbar-button wm-auto-indent-button",
+      text: "首行缩进",
+      attr: { type: "button", "aria-label": "自动首行缩进" },
+    });
+    this.updateAutoIndentButtonState();
+    this.registerDomEvent(this.autoIndentToggleButton, "click", () => {
+      const enabled = !this.autoIndentEnabled;
+      this.applyAutoIndentMode(enabled);
+      this.plugin.settings.autoParagraphIndent = enabled;
+      void this.plugin.saveSettings();
+    });
 
     const rightGroup = this.toolbarEl.createDiv({ cls: "wm-toolbar-group wm-toolbar-group-right" });
 
@@ -656,7 +673,7 @@ export class WorkbenchView extends TextFileView {
         return;
       }
 
-      if (event.key === "Enter") {
+      if (event.key === "Enter" && this.autoIndentEnabled) {
         event.preventDefault();
         this.insertIndentedLineBreak();
         return;
@@ -696,7 +713,7 @@ export class WorkbenchView extends TextFileView {
     this.updateSessionDurations(now);
     this.sessionState.lastActivityAt = now;
     this.normalizeEditorDisplay();
-    this.data = getPlainEditorText(this.editorEl.value);
+    this.data = this.getCurrentEditorText();
     this.updateStats();
     this.requestSave();
     this.keepCursorInComfortZone();
@@ -750,6 +767,10 @@ export class WorkbenchView extends TextFileView {
   }
 
   private normalizeEditorDisplay(): void {
+    if (!this.autoIndentEnabled) {
+      return;
+    }
+
     const cursor = this.editorEl.selectionStart ?? 0;
     const currentValue = this.editorEl.value;
     const formatted = formatEditorDisplayTextWithCursor(currentValue, cursor);
@@ -759,6 +780,62 @@ export class WorkbenchView extends TextFileView {
 
     this.editorEl.value = formatted.value;
     this.editorEl.setSelectionRange(formatted.cursor, formatted.cursor);
+  }
+
+  private getCurrentEditorText(): string {
+    return this.autoIndentEnabled ? getPlainEditorText(this.editorEl.value) : this.editorEl.value;
+  }
+
+  private applyAutoIndentMode(enabled: boolean): void {
+    if (this.autoIndentEnabled === enabled) {
+      this.updateAutoIndentButtonState();
+      return;
+    }
+
+    if (!this.editorEl) {
+      this.autoIndentEnabled = enabled;
+      return;
+    }
+
+    const value = this.editorEl.value;
+    const selectionStart = this.editorEl.selectionStart ?? 0;
+    const selectionEnd = this.editorEl.selectionEnd ?? 0;
+    const plainValue = this.autoIndentEnabled ? getPlainEditorText(value) : value;
+    const plainSelectionStart = this.autoIndentEnabled
+      ? getPlainEditorText(value.slice(0, selectionStart)).length
+      : selectionStart;
+    const plainSelectionEnd = this.autoIndentEnabled
+      ? getPlainEditorText(value.slice(0, selectionEnd)).length
+      : selectionEnd;
+
+    this.autoIndentEnabled = enabled;
+    if (enabled) {
+      this.editorEl.value = formatPlainEditorDisplayText(plainValue);
+      this.editorEl.setSelectionRange(
+        getFormattedEditorCursor(plainValue, plainSelectionStart),
+        getFormattedEditorCursor(plainValue, plainSelectionEnd),
+      );
+    } else {
+      this.editorEl.value = plainValue;
+      this.editorEl.setSelectionRange(plainSelectionStart, plainSelectionEnd);
+    }
+
+    this.data = this.getCurrentEditorText();
+    this.updateAutoIndentButtonState();
+    this.updateStats();
+  }
+
+  private updateAutoIndentButtonState(): void {
+    if (!this.autoIndentToggleButton) {
+      return;
+    }
+
+    this.autoIndentToggleButton.classList.toggle("is-active", this.autoIndentEnabled);
+    this.autoIndentToggleButton.setAttribute("aria-pressed", String(this.autoIndentEnabled));
+    this.autoIndentToggleButton.setAttribute(
+      "title",
+      this.autoIndentEnabled ? "自动首行缩进：已开启" : "自动首行缩进：已关闭",
+    );
   }
 
   private insertIndentedLineBreak(): void {
@@ -880,7 +957,7 @@ export class WorkbenchView extends TextFileView {
       return;
     }
 
-    const diff = await buildSnapshotDiff(this.plugin, snapshotFile, getPlainEditorText(this.editorEl.value));
+    const diff = await buildSnapshotDiff(this.plugin, snapshotFile, this.getCurrentEditorText());
     this.renderSnapshotDiff(diff);
   }
 
@@ -907,7 +984,7 @@ export class WorkbenchView extends TextFileView {
 
     const snapshotText = await this.app.vault.cachedRead(snapshotFile);
     await this.saveManualTimeMachineSnapshot(false);
-    this.editorEl.value = formatEditorDisplayText(snapshotText);
+    this.editorEl.value = this.autoIndentEnabled ? formatEditorDisplayText(snapshotText) : snapshotText;
     this.handleEditorMutation();
     this.lastSnapshotWords = countWritingCharacters(snapshotText);
     this.lastSnapshotCreatedAt = Date.now();
@@ -921,7 +998,7 @@ export class WorkbenchView extends TextFileView {
       return;
     }
 
-    const text = getPlainEditorText(this.editorEl.value);
+    const text = this.getCurrentEditorText();
     const snapshot = await createTimeMachineSnapshot(this.plugin, this.file, text, { kind: "manual" });
     this.lastSnapshotWords = snapshot.wordCount;
     this.lastSnapshotCreatedAt = snapshot.createdAt;
@@ -941,7 +1018,7 @@ export class WorkbenchView extends TextFileView {
       const snapshotState = await maybeCreateTimeMachineSnapshot(
         this.plugin,
         this.file,
-        getPlainEditorText(this.editorEl.value),
+        this.getCurrentEditorText(),
         this.lastSnapshotWords,
         this.lastSnapshotCreatedAt,
       );
@@ -970,7 +1047,7 @@ export class WorkbenchView extends TextFileView {
     );
 
     this.otherChaptersWords = totals.reduce((total, words) => total + words, 0);
-    this.novelTotalWords = this.otherChaptersWords + computeWritingStats(this.editorEl ? getPlainEditorText(this.editorEl.value) : this.data ?? "").words;
+    this.novelTotalWords = this.otherChaptersWords + computeWritingStats(this.editorEl ? this.getCurrentEditorText() : this.data ?? "").words;
     this.updateStats();
   }
 
@@ -1234,7 +1311,7 @@ export class WorkbenchView extends TextFileView {
       return;
     }
 
-    const staticStats = computeWritingStats(this.editorEl ? getPlainEditorText(this.editorEl.value) : this.data ?? "");
+    const staticStats = computeWritingStats(this.editorEl ? this.getCurrentEditorText() : this.data ?? "");
     const sessionStats = this.getSessionStats(staticStats.words);
     this.novelTotalWords = this.otherChaptersWords + staticStats.words;
     const rows = this.buildStatsRows(staticStats, sessionStats);
@@ -1553,7 +1630,11 @@ function normalizeLegacyParagraphSpacing(text: string): string {
 
 function formatEditorDisplayText(text: string): string {
   const originalLines = text.split("\n");
-  return getPlainEditorText(text)
+  return formatPlainEditorDisplayText(getPlainEditorText(text), originalLines);
+}
+
+function formatPlainEditorDisplayText(text: string, originalLines = text.split("\n")): string {
+  return text
     .split("\n")
     .map((line, index) => {
       if (line.trim()) {
@@ -1564,6 +1645,25 @@ function formatEditorDisplayText(text: string): string {
       return originalLine.startsWith(PARAGRAPH_INDENT) ? PARAGRAPH_INDENT : line;
     })
     .join("\n");
+}
+
+function getFormattedEditorCursor(text: string, cursor: number): number {
+  const boundedCursor = Math.min(Math.max(cursor, 0), text.length);
+  let formattedCursor = boundedCursor;
+  let lineStart = 0;
+
+  for (const line of text.split("\n")) {
+    if (lineStart > boundedCursor) {
+      break;
+    }
+
+    if (line.trim()) {
+      formattedCursor += PARAGRAPH_INDENT.length;
+    }
+    lineStart += line.length + 1;
+  }
+
+  return formattedCursor;
 }
 
 function formatEditorDisplayTextWithCursor(text: string, cursor: number): { value: string; cursor: number } {

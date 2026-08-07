@@ -8,6 +8,7 @@ export interface WatermelonSettings {
   defaultFontFamily: string;
   defaultFontSizePx: number;
   defaultLineHeight: number;
+  autoParagraphIndent: boolean;
   showChapterPanel: boolean;
   showStatsPanel: boolean;
   chapterPanelWidth: number;
@@ -22,6 +23,7 @@ export const DEFAULT_SETTINGS: WatermelonSettings = {
   defaultFontFamily: "",
   defaultFontSizePx: 22,
   defaultLineHeight: 1.8,
+  autoParagraphIndent: true,
   showChapterPanel: true,
   showStatsPanel: true,
   chapterPanelWidth: 260,
