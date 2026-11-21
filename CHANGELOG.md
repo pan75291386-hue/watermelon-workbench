@@ -1,11 +1,25 @@
 # Changelog
 
+## 0.1.11
+
+### Fixed
+
+- Synchronized the source-level community review fixes with the published build.
+- Replaced all four flagged direct style assignments in the export UI with Obsidian's recommended `setCssProps()` helper.
+
+## 0.1.10
+
+### Fixed
+
+- Replaced direct inline style assignments with Obsidian's recommended `setCssProps()` helper for community review compatibility.
+
 ## 0.1.9
 
-### Changed
+### Added
 
-- Prepared the current development build for a new Obsidian community plugin release.
-- Refreshed the bundled plugin output and synchronized release metadata.
+- Added DOCX and plain-text export for writing projects.
+- Added a destination picker for saving exports inside the vault or to a desktop file location.
+- Added export completion actions for copying the saved path and revealing desktop exports in their folder.
 
 ## 0.1.8
 

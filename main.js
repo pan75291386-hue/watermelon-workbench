@@ -1258,7 +1258,7 @@ var ExportDestinationModal = class extends import_obsidian3.Modal {
       pathSetting.addText((text) => {
         text.setValue(adapter.getFullPath?.(joinVaultPath(this.defaultFolder, this.defaultFileName)) ?? "");
         this.systemPathInput = text.inputEl;
-        text.inputEl.style.minWidth = "240px";
+        text.inputEl.setCssProps({ "min-width": "240px" });
       });
       if (this.nativeSaveDialog) {
         pathSetting.addButton((button) => button.setButtonText("\u6D4F\u89C8\u5E76\u4FDD\u5B58\u2026").onClick(() => void this.browseAndSave()));
@@ -1270,7 +1270,7 @@ var ExportDestinationModal = class extends import_obsidian3.Modal {
       });
     }
     this.errorEl = this.contentEl.createEl("p");
-    this.errorEl.style.color = "var(--text-error)";
+    this.errorEl.setCssProps({ color: "var(--text-error)" });
     new import_obsidian3.Setting(this.contentEl).addButton((button) => button.setButtonText("\u53D6\u6D88").onClick(() => this.close())).addButton((button) => button.setButtonText("\u4FDD\u5B58").setCta().onClick(() => void this.submit()));
   }
   onClose() {
@@ -2755,8 +2755,7 @@ var ExportResultModal = class extends import_obsidian4.Modal {
       attr: { readonly: "", rows: "3", "aria-label": "\u5BFC\u51FA\u6587\u4EF6\u5730\u5740" }
     });
     pathEl.value = this.displayedPath;
-    pathEl.style.width = "100%";
-    pathEl.style.resize = "none";
+    pathEl.setCssProps({ width: "100%", resize: "none" });
     const actions = new import_obsidian4.Setting(this.contentEl);
     actions.addButton((button) => button.setButtonText("\u590D\u5236\u5730\u5740").setCta().onClick(async () => {
       try {

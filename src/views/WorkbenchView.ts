@@ -1661,8 +1661,7 @@ class ExportResultModal extends Modal {
       attr: { readonly: "", rows: "3", "aria-label": "导出文件地址" },
     });
     pathEl.value = this.displayedPath;
-    pathEl.style.width = "100%";
-    pathEl.style.resize = "none";
+    pathEl.setCssProps({ width: "100%", resize: "none" });
 
     const actions = new Setting(this.contentEl);
     actions.addButton((button) => button.setButtonText("复制地址").setCta().onClick(async () => {
