@@ -58,6 +58,15 @@ A small right-side dashboard tracks the essentials:
 - Total characters / non-space characters
 - Chapter count / total novel word count across the current folder
 
+### 📤 Export documents
+
+- Click the file-down icon in the workbench's upper-right toolbar to export the current chapter as Word (`.docx`) or UTF-8 TXT (`.txt`).
+- When the chapter list contains multiple Markdown files, the menu also offers a combined export in the chapter list's sort order.
+- Before saving, choose a vault folder and filename. On desktop, click **浏览并保存…** to choose a location in the system save dialog, or edit the full path directly. The default is a `导出` folder next to the chapter, with a numbered filename if a previous export exists.
+- Exports include the latest text in the active editor and never overwrite an existing file.
+- After export, a dialog shows the full file path, lets you copy it, and can reveal the file in its folder on desktop. On older Obsidian versions without full-path support, it shows the path within the vault.
+- Basic Markdown headings, links, emphasis, lists, and quotes become readable document text. The Word file keeps heading formatting. Other Markdown syntax may remain as text.
+
 ## 📦 Installation
 
 ### Manual installation
@@ -110,6 +119,7 @@ Inside the workbench:
 - Center: focused editor
 - Right panel: plugin box + live stats
 - `Esc` or the toolbar exit button returns to normal Obsidian editing
+- Upper-right file-down icon: export the current chapter or all chapters as Word/TXT
 
 ## 🧃 Philosophy
 
@@ -126,7 +136,8 @@ src/
 ├── services/
 │   ├── RandomNameService.ts        # Local name/place generation
 │   ├── StatsService.ts             # Writing statistics
-│   └── TimeMachineService.ts       # Snapshot, diff, restore helpers
+│   ├── TimeMachineService.ts       # Snapshot, diff, restore helpers
+│   └── ExportService.ts            # Word/TXT generation
 ├── utils/
 │   └── formatting.ts               # Toolbar text transforms
 └── views/

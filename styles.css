@@ -1,5 +1,7 @@
 .wm-workbench-view {
   padding: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .wm-workbench {
@@ -12,6 +14,9 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
   background: var(--background-primary);
   color: var(--text-normal);
 }
@@ -424,9 +429,12 @@
 }
 
 .wm-editor {
+  box-sizing: border-box;
   width: 100%;
   flex: 1;
   min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
   resize: none;
   border: 0;
   outline: none;

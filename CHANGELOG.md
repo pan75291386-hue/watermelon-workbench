@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.9
+
+### Changed
+
+- Prepared the current development build for a new Obsidian community plugin release.
+- Refreshed the bundled plugin output and synchronized release metadata.
+
 ## 0.1.8
 
 ### Added

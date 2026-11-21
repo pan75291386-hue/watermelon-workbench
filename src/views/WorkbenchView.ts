@@ -4,6 +4,7 @@ import {
   Modal,
   Notice,
   normalizePath,
+  Platform,
   Setting,
   TAbstractFile,
   TFile,
@@ -39,6 +40,8 @@ import {
   type WritingSessionStats,
   type WritingStats,
 } from "../services/StatsService";
+import { buildDocxExport, buildTxtExport, type ExportChapter } from "../services/ExportService";
+import { ExportDestinationModal } from "./ExportDestinationModal";
 import { prefixSelectedLines, wrapSelection } from "../utils/formatting";
 
 const PARAGRAPH_INDENT = "　　";
@@ -97,6 +100,7 @@ export class WorkbenchView extends TextFileView {
   private timeMachineDiffEl!: HTMLDivElement;
   private chapterToggleButton!: HTMLButtonElement;
   private statsToggleButton!: HTMLButtonElement;
+  private exportButton!: HTMLButtonElement;
   private autoIndentToggleButton!: HTMLButtonElement;
   private chapterPanelVisible: boolean;
   private statsPanelVisible: boolean;
@@ -121,6 +125,7 @@ export class WorkbenchView extends TextFileView {
   private lastSnapshotCreatedAt = 0;
   private snapshotSaveInFlight = false;
   private caretMirrorEl: HTMLDivElement | null = null;
+  private exportInProgress = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: WatermelonWorkbenchPlugin) {
     super(leaf);
@@ -439,6 +444,13 @@ export class WorkbenchView extends TextFileView {
       this.applyPanelLayout();
       void this.plugin.saveSettings();
     });
+
+    this.exportButton = rightGroup.createEl("button", {
+      cls: "clickable-icon wm-icon-button",
+      attr: { type: "button", "aria-label": "导出文件", title: "导出文件" },
+    });
+    setIcon(this.exportButton, "file-down");
+    this.registerDomEvent(this.exportButton, "click", (event) => this.showExportMenu(event));
 
     const exitButton = rightGroup.createEl("button", {
       cls: "wm-toolbar-button wm-exit-button",
@@ -1386,7 +1398,102 @@ export class WorkbenchView extends TextFileView {
 
   private updateHeaderState(): void {
     this.emptyStateEl?.toggleClass("is-hidden", Boolean(this.file));
+    if (this.exportButton) {
+      this.exportButton.disabled = !this.file || this.exportInProgress;
+    }
     this.leaf.setEphemeralState({ file: this.file?.path ?? this.selectedChapterPath ?? null });
+  }
+
+  private showExportMenu(event: MouseEvent): void {
+    if (!this.file || this.exportInProgress) {
+      return;
+    }
+
+    const menu = new Menu();
+    menu.addItem((item) => item.setTitle("当前章节 → Word (.docx)").setIcon("file-text")
+      .onClick(() => void this.exportDocument("current", "docx")));
+    menu.addItem((item) => item.setTitle("当前章节 → TXT (.txt)").setIcon("file-text")
+      .onClick(() => void this.exportDocument("current", "txt")));
+
+    if (this.getScopedFiles().length > 1) {
+      menu.addSeparator();
+      menu.addItem((item) => item.setTitle("全部章节 → Word (.docx)").setIcon("files")
+        .onClick(() => void this.exportDocument("all", "docx")));
+      menu.addItem((item) => item.setTitle("全部章节 → TXT (.txt)").setIcon("files")
+        .onClick(() => void this.exportDocument("all", "txt")));
+    }
+    menu.showAtMouseEvent(event);
+  }
+
+  private async exportDocument(scope: "current" | "all", format: "docx" | "txt"): Promise<void> {
+    const activeFile = this.file;
+    if (!activeFile || this.exportInProgress) {
+      return;
+    }
+
+    this.exportInProgress = true;
+    this.updateHeaderState();
+    try {
+      const files = scope === "all"
+        ? this.getScopedFiles().sort((left, right) => this.compareFiles(left, right, this.plugin.settings))
+        : [activeFile];
+      if (files.length === 0) {
+        new Notice("当前范围没有可导出的章节。");
+        return;
+      }
+
+      const exportFolder = joinVaultPath(activeFile.parent?.path ?? "", "导出");
+      const folderName = activeFile.parent?.path && activeFile.parent.path !== "/"
+        ? activeFile.parent.name
+        : "全部章节";
+      const baseName = scope === "current" ? activeFile.basename : `${folderName}-合集`;
+      let fileName = `${baseName}.${format}`;
+      let suffix = 2;
+      while (await this.app.vault.adapter.exists(joinVaultPath(exportFolder, fileName))) {
+        fileName = `${baseName} ${suffix}.${format}`;
+        suffix += 1;
+      }
+
+      const destination = await new ExportDestinationModal(this.app, exportFolder, fileName, format).choose();
+      if (!destination) {
+        return;
+      }
+
+      const chapters: ExportChapter[] = await Promise.all(files.map(async (file) => ({
+        title: file.basename,
+        markdown: file.path === activeFile.path ? this.getCurrentEditorText() : await this.app.vault.read(file),
+      })));
+      const data = format === "docx"
+        ? buildDocxExport(chapters)
+        : new TextEncoder().encode(buildTxtExport(chapters)).buffer;
+
+      if (destination.kind === "system") {
+        const fs = require("fs") as typeof import("node:fs");
+        const nodePath = require("path") as typeof import("node:path");
+        if (destination.createDefaultFolder) {
+          await fs.promises.mkdir(nodePath.dirname(destination.path), { recursive: true });
+        }
+        await fs.promises.writeFile(destination.path, new Uint8Array(data), { flag: "wx" });
+        new ExportResultModal(this.app, destination.path, true).open();
+      } else {
+        if (destination.folder && destination.folder !== "/" &&
+          !await this.app.vault.adapter.exists(destination.folder)) {
+          await this.app.vault.createFolder(destination.folder);
+        }
+        await this.app.vault.createBinary(destination.path, data);
+        const adapterWithFullPath = this.app.vault.adapter as typeof this.app.vault.adapter & {
+          getFullPath?: (path: string) => string;
+        };
+        const fullPath = adapterWithFullPath.getFullPath?.(destination.path);
+        new ExportResultModal(this.app, fullPath ?? destination.path, Boolean(fullPath)).open();
+      }
+    } catch (error) {
+      console.error("Failed to export document", error);
+      new Notice("导出失败，请检查保存位置是否可写、文件是否已存在，然后重试。");
+    } finally {
+      this.exportInProgress = false;
+      this.updateHeaderState();
+    }
   }
 
   renderEmptyEditorState(message: string): void {
@@ -1532,6 +1639,61 @@ export class WorkbenchView extends TextFileView {
     }
 
     return left.path.localeCompare(right.path, undefined, { numeric: true });
+  }
+}
+
+class ExportResultModal extends Modal {
+  constructor(
+    app: App,
+    private readonly displayedPath: string,
+    private readonly isAbsolutePath: boolean,
+  ) {
+    super(app);
+  }
+
+  override onOpen(): void {
+    this.titleEl.setText("导出完成");
+    this.contentEl.empty();
+    this.contentEl.createEl("p", {
+      text: this.isAbsolutePath ? "文件完整地址：" : "文件在仓库中的地址：",
+    });
+    const pathEl = this.contentEl.createEl("textarea", {
+      attr: { readonly: "", rows: "3", "aria-label": "导出文件地址" },
+    });
+    pathEl.value = this.displayedPath;
+    pathEl.style.width = "100%";
+    pathEl.style.resize = "none";
+
+    const actions = new Setting(this.contentEl);
+    actions.addButton((button) => button.setButtonText("复制地址").setCta().onClick(async () => {
+      try {
+        await navigator.clipboard.writeText(this.displayedPath);
+        new Notice("导出地址已复制。");
+      } catch (error) {
+        console.error("Failed to copy export path", error);
+        pathEl.focus();
+        pathEl.select();
+        new Notice("复制失败，已选中地址，请手动复制。");
+      }
+    }));
+
+    if (this.isAbsolutePath && Platform.isDesktopApp) {
+      actions.addButton((button) => button.setButtonText("打开所在文件夹").onClick(() => {
+        try {
+          const electron = require("electron") as { shell: { showItemInFolder(path: string): void } };
+          electron.shell.showItemInFolder(this.displayedPath);
+        } catch (error) {
+          console.error("Failed to reveal exported file", error);
+          new Notice("无法打开文件夹，请使用上方地址查找文件。");
+        }
+      }));
+    }
+
+    actions.addButton((button) => button.setButtonText("关闭").onClick(() => this.close()));
+  }
+
+  override onClose(): void {
+    this.contentEl.empty();
   }
 }
 

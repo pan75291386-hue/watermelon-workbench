@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => WatermelonWorkbenchPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 
 // src/settings.ts
 var import_obsidian = require("obsidian");
@@ -126,7 +126,7 @@ function normalizeFontFamilyInput(value) {
 }
 
 // src/views/WorkbenchView.ts
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // src/data/randomNameData.ts
 var RANDOM_NAME_GROUPS = [
@@ -1048,7 +1048,7 @@ function computeWritingStats(text) {
   const charactersNoSpaces = Array.from(text.replace(/\s+/g, "")).length;
   const cjkMatches = text.match(CJK_CHAR_REGEX) ?? [];
   const latinMatches = text.match(LATIN_WORD_REGEX) ?? [];
-  const paragraphs = text.split(/\n\s*\n/g).map((paragraph) => paragraph.trim()).filter(Boolean).length;
+  const paragraphs = text.split(/\n\s*\n/g).map((paragraph2) => paragraph2.trim()).filter(Boolean).length;
   const headings = (text.match(HEADING_REGEX) ?? []).length;
   const words = cjkMatches.length + latinMatches.length;
   const readingMinutes = Math.max(1, Math.ceil(words / 300));
@@ -1073,6 +1073,345 @@ function formatDuration(durationMs) {
   const minutes = Math.floor(totalSeconds % 3600 / 60);
   const seconds = totalSeconds % 60;
   return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+}
+
+// src/services/ExportService.ts
+function buildTxtExport(chapters) {
+  return chapters.map((chapter) => {
+    const lines = parseChapter(chapter.markdown).map((line) => line.text);
+    return chapters.length > 1 ? [chapter.title, "", ...lines].join("\n").trimEnd() : lines.join("\n");
+  }).join("\n\n\n");
+}
+function buildDocxExport(chapters) {
+  const paragraphs = [];
+  chapters.forEach((chapter, chapterIndex) => {
+    if (chapters.length > 1) {
+      paragraphs.push(paragraph(chapter.title, 1, chapterIndex > 0));
+    }
+    for (const line of parseChapter(chapter.markdown)) {
+      paragraphs.push(paragraph(line.text, line.headingLevel));
+    }
+  });
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paragraphs.join("")}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`;
+  return createZip([
+    {
+      name: "[Content_Types].xml",
+      text: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`
+    },
+    {
+      name: "_rels/.rels",
+      text: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`
+    },
+    { name: "word/document.xml", text: documentXml }
+  ]);
+}
+function parseChapter(markdown) {
+  const source = markdown.replace(/\r\n?/g, "\n");
+  const withoutFrontmatter = source.replace(/^---\n[\s\S]*?\n---(?:\n|$)/, "");
+  const lines = [];
+  let inCodeBlock = false;
+  for (const sourceLine of withoutFrontmatter.split("\n")) {
+    if (/^\s*(```|~~~)/.test(sourceLine)) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+    if (inCodeBlock) {
+      lines.push({ text: sourceLine, headingLevel: 0 });
+      continue;
+    }
+    const heading = sourceLine.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (heading) {
+      lines.push({ text: plainInline(heading[2] ?? ""), headingLevel: heading[1]?.length ?? 1 });
+      continue;
+    }
+    let line = sourceLine.replace(/^\s{0,3}>\s?/, "");
+    line = line.replace(/^(\s*)[-*+]\s+/, "$1\u2022 ");
+    lines.push({ text: plainInline(line), headingLevel: 0 });
+  }
+  return lines;
+}
+function plainInline(text) {
+  return text.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/\[\[([^\]]+)\]\]/g, (_match, link) => link.split("|").pop() ?? link).replace(/(\*\*|__)(.*?)\1/g, "$2").replace(/(\*|_)(.*?)\1/g, "$2").replace(/`([^`]+)`/g, "$1").replace(/\\([\\`*_{}\[\]()#+.!>~-])/g, "$1");
+}
+function paragraph(text, headingLevel, pageBreak = false) {
+  const headingSize = [0, 32, 28, 26, 24, 22, 22][headingLevel] ?? 22;
+  const properties = headingLevel || pageBreak ? `<w:pPr>${headingLevel ? "<w:keepNext/>" : ""}${pageBreak ? "<w:pageBreakBefore/>" : ""}` + (headingLevel ? `<w:spacing w:before="240" w:after="120"/><w:outlineLvl w:val="${headingLevel - 1}"/>` : "") + `</w:pPr>` : "";
+  const runProperties = headingLevel ? `<w:rPr><w:b/><w:sz w:val="${headingSize}"/></w:rPr>` : "";
+  return `<w:p>${properties}<w:r>${runProperties}<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`;
+}
+function escapeXml(value) {
+  return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+function createZip(files) {
+  const encoder = new TextEncoder();
+  const entries = files.map(({ name, text }) => {
+    const nameBytes = encoder.encode(name);
+    const data = encoder.encode(text);
+    return { nameBytes, data, checksum: crc32(data) };
+  });
+  const localSize = entries.reduce((size, entry) => size + 30 + entry.nameBytes.length + entry.data.length, 0);
+  const centralSize = entries.reduce((size, entry) => size + 46 + entry.nameBytes.length, 0);
+  const bytes = new Uint8Array(localSize + centralSize + 22);
+  const view = new DataView(bytes.buffer);
+  let offset = 0;
+  const offsets = [];
+  entries.forEach((entry) => {
+    offsets.push(offset);
+    view.setUint32(offset, 67324752, true);
+    view.setUint16(offset + 4, 20, true);
+    view.setUint16(offset + 6, 2048, true);
+    view.setUint32(offset + 14, entry.checksum, true);
+    view.setUint32(offset + 18, entry.data.length, true);
+    view.setUint32(offset + 22, entry.data.length, true);
+    view.setUint16(offset + 26, entry.nameBytes.length, true);
+    offset += 30;
+    bytes.set(entry.nameBytes, offset);
+    offset += entry.nameBytes.length;
+    bytes.set(entry.data, offset);
+    offset += entry.data.length;
+  });
+  const centralOffset = offset;
+  entries.forEach((entry, index) => {
+    view.setUint32(offset, 33639248, true);
+    view.setUint16(offset + 4, 20, true);
+    view.setUint16(offset + 6, 20, true);
+    view.setUint16(offset + 8, 2048, true);
+    view.setUint32(offset + 16, entry.checksum, true);
+    view.setUint32(offset + 20, entry.data.length, true);
+    view.setUint32(offset + 24, entry.data.length, true);
+    view.setUint16(offset + 28, entry.nameBytes.length, true);
+    view.setUint32(offset + 42, offsets[index] ?? 0, true);
+    offset += 46;
+    bytes.set(entry.nameBytes, offset);
+    offset += entry.nameBytes.length;
+  });
+  view.setUint32(offset, 101010256, true);
+  view.setUint16(offset + 8, entries.length, true);
+  view.setUint16(offset + 10, entries.length, true);
+  view.setUint32(offset + 12, centralSize, true);
+  view.setUint32(offset + 16, centralOffset, true);
+  return bytes.buffer;
+}
+function crc32(bytes) {
+  let crc = 4294967295;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = crc >>> 1 ^ (crc & 1 ? 3988292384 : 0);
+    }
+  }
+  return (crc ^ 4294967295) >>> 0;
+}
+
+// src/views/ExportDestinationModal.ts
+var import_obsidian3 = require("obsidian");
+var ExportDestinationModal = class extends import_obsidian3.Modal {
+  constructor(app, defaultFolder, defaultFileName, format) {
+    super(app);
+    this.defaultFolder = defaultFolder;
+    this.defaultFileName = defaultFileName;
+    this.format = format;
+    this.resolveChoice = null;
+    this.settled = false;
+    this.submitting = false;
+    this.browsing = false;
+    this.systemPathInput = null;
+    this.fileNameInput = null;
+    this.defaultAbsoluteFolder = null;
+    this.nativeSaveDialog = null;
+    this.selectedFolder = defaultFolder;
+  }
+  choose() {
+    return new Promise((resolve) => {
+      this.resolveChoice = resolve;
+      this.open();
+    });
+  }
+  onOpen() {
+    this.titleEl.setText("\u9009\u62E9\u5BFC\u51FA\u4F4D\u7F6E");
+    this.contentEl.empty();
+    const adapter = this.app.vault.adapter;
+    const canSaveOutsideVault = import_obsidian3.Platform.isDesktopApp && typeof adapter.getFullPath === "function";
+    if (canSaveOutsideVault) {
+      this.defaultAbsoluteFolder = adapter.getFullPath?.(this.defaultFolder) ?? null;
+      this.nativeSaveDialog = getNativeSaveDialog();
+    }
+    const folders = [this.defaultFolder, "", ...this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian3.TFolder).map((folder) => folder.path)].filter((folder, index, all) => all.indexOf(folder) === index);
+    new import_obsidian3.Setting(this.contentEl).setName("\u4ED3\u5E93\u5185\u6587\u4EF6\u5939").setDesc("\u53EF\u4ECE\u73B0\u6709\u6587\u4EF6\u5939\u4E2D\u9009\u62E9\uFF1B\u9ED8\u8BA4\u4F7F\u7528\u5F53\u524D\u7AE0\u8282\u65C1\u7684\u201C\u5BFC\u51FA\u201D\u6587\u4EF6\u5939\u3002").addDropdown((dropdown) => {
+      folders.forEach((folder) => {
+        const label = folder === this.defaultFolder ? `${folder}\uFF08\u9ED8\u8BA4\uFF09` : folder || "/\uFF08\u4ED3\u5E93\u6839\u76EE\u5F55\uFF09";
+        dropdown.addOption(folder, label);
+      });
+      dropdown.setValue(this.defaultFolder);
+      dropdown.onChange((folder) => {
+        this.selectedFolder = folder;
+        if (this.systemPathInput && adapter.getFullPath) {
+          const nodePath = require("path");
+          const currentName = nodePath.basename(this.systemPathInput.value) || this.defaultFileName;
+          this.systemPathInput.value = adapter.getFullPath(joinVaultPath(folder, currentName));
+        }
+        this.showError("");
+      });
+    });
+    if (canSaveOutsideVault) {
+      const pathSetting = new import_obsidian3.Setting(this.contentEl).setName("\u5B8C\u6574\u4FDD\u5B58\u5730\u5740").setDesc("\u70B9\u51FB\u201C\u6D4F\u89C8\u5E76\u4FDD\u5B58\u201D\u53EF\u6253\u5F00\u7535\u8111\u7684\u4FDD\u5B58\u7A97\u53E3\uFF0C\u4E5F\u53EF\u76F4\u63A5\u4FEE\u6539\u5730\u5740\u3002");
+      pathSetting.addText((text) => {
+        text.setValue(adapter.getFullPath?.(joinVaultPath(this.defaultFolder, this.defaultFileName)) ?? "");
+        this.systemPathInput = text.inputEl;
+        text.inputEl.style.minWidth = "240px";
+      });
+      if (this.nativeSaveDialog) {
+        pathSetting.addButton((button) => button.setButtonText("\u6D4F\u89C8\u5E76\u4FDD\u5B58\u2026").onClick(() => void this.browseAndSave()));
+      }
+    } else {
+      new import_obsidian3.Setting(this.contentEl).setName("\u6587\u4EF6\u540D").addText((text) => {
+        text.setValue(this.defaultFileName);
+        this.fileNameInput = text.inputEl;
+      });
+    }
+    this.errorEl = this.contentEl.createEl("p");
+    this.errorEl.style.color = "var(--text-error)";
+    new import_obsidian3.Setting(this.contentEl).addButton((button) => button.setButtonText("\u53D6\u6D88").onClick(() => this.close())).addButton((button) => button.setButtonText("\u4FDD\u5B58").setCta().onClick(() => void this.submit()));
+  }
+  onClose() {
+    if (!this.settled) {
+      this.settled = true;
+      this.resolveChoice?.(null);
+    }
+    this.resolveChoice = null;
+    this.contentEl.empty();
+  }
+  async submit() {
+    if (this.settled || this.submitting) {
+      return;
+    }
+    this.submitting = true;
+    try {
+      await this.validateAndFinish();
+    } catch (error) {
+      console.error("Failed to choose export destination", error);
+      this.showError("\u65E0\u6CD5\u4F7F\u7528\u6B64\u4F4D\u7F6E\uFF0C\u8BF7\u68C0\u67E5\u5730\u5740\u540E\u91CD\u8BD5\u3002");
+    } finally {
+      this.submitting = false;
+    }
+  }
+  async browseAndSave() {
+    if (!this.nativeSaveDialog || !this.systemPathInput || this.browsing || this.submitting || this.settled) {
+      return;
+    }
+    this.browsing = true;
+    try {
+      const nodePath = require("path");
+      const fs = require("fs");
+      const proposedPath = this.systemPathInput.value.trim();
+      let existingFolder = nodePath.dirname(proposedPath);
+      while (!fs.existsSync(existingFolder)) {
+        const parent = nodePath.dirname(existingFolder);
+        if (parent === existingFolder) {
+          break;
+        }
+        existingFolder = parent;
+      }
+      const result = await this.nativeSaveDialog.showSaveDialog({
+        title: "\u9009\u62E9\u5BFC\u51FA\u4F4D\u7F6E",
+        defaultPath: nodePath.join(existingFolder, nodePath.basename(proposedPath)),
+        buttonLabel: "\u5BFC\u51FA",
+        filters: [{ name: this.format === "docx" ? "Word \u6587\u6863" : "\u7EAF\u6587\u672C", extensions: [this.format] }]
+      });
+      if (result.canceled || !result.filePath) {
+        return;
+      }
+      this.systemPathInput.value = result.filePath;
+      this.showError("");
+      await this.submit();
+    } catch (error) {
+      console.error("Failed to open native export dialog", error);
+      this.showError("\u65E0\u6CD5\u6253\u5F00\u7CFB\u7EDF\u4FDD\u5B58\u7A97\u53E3\uFF0C\u8BF7\u4F7F\u7528\u5B8C\u6574\u5730\u5740\u4FDD\u5B58\u3002");
+    } finally {
+      this.browsing = false;
+    }
+  }
+  async validateAndFinish() {
+    if (this.systemPathInput) {
+      const nodePath = require("path");
+      const fs = require("fs");
+      let filePath2 = this.systemPathInput.value.trim();
+      if (!nodePath.isAbsolute(filePath2) || /[\\/]$/.test(filePath2)) {
+        this.showError("\u8BF7\u8F93\u5165\u5305\u542B\u6587\u4EF6\u540D\u7684\u5B8C\u6574\u7EDD\u5BF9\u5730\u5740\u3002");
+        return;
+      }
+      if (!nodePath.extname(filePath2)) {
+        filePath2 += `.${this.format}`;
+      }
+      if (nodePath.extname(filePath2).toLowerCase() !== `.${this.format}`) {
+        this.showError(`\u6587\u4EF6\u6269\u5C55\u540D\u5FC5\u987B\u662F .${this.format}\u3002`);
+        return;
+      }
+      if (fs.existsSync(filePath2)) {
+        this.showError("\u76EE\u6807\u6587\u4EF6\u5DF2\u5B58\u5728\uFF0C\u8BF7\u66F4\u6362\u6587\u4EF6\u540D\uFF0C\u907F\u514D\u8986\u76D6\u3002");
+        return;
+      }
+      const adapter = this.app.vault.adapter;
+      const name = nodePath.basename(filePath2);
+      const selectedVaultPath = joinVaultPath(this.selectedFolder, name);
+      const selectedAbsolutePath = adapter.getFullPath?.(selectedVaultPath);
+      if (selectedAbsolutePath && nodePath.resolve(selectedAbsolutePath) === nodePath.resolve(filePath2)) {
+        this.finish({ kind: "vault", path: selectedVaultPath, folder: this.selectedFolder });
+        return;
+      }
+      const parent = nodePath.dirname(filePath2);
+      const createDefaultFolder = this.defaultAbsoluteFolder !== null && nodePath.resolve(parent) === nodePath.resolve(this.defaultAbsoluteFolder);
+      if (!createDefaultFolder && (!fs.existsSync(parent) || !fs.statSync(parent).isDirectory())) {
+        this.showError("\u76EE\u6807\u6587\u4EF6\u5939\u4E0D\u5B58\u5728\uFF0C\u8BF7\u9009\u62E9\u73B0\u6709\u6587\u4EF6\u5939\u3002");
+        return;
+      }
+      this.finish({ kind: "system", path: filePath2, createDefaultFolder });
+      return;
+    }
+    const fileName = this.fileNameInput?.value.trim() ?? "";
+    if (!fileName || /[\\/:*?"<>|]/.test(fileName) || fileName.endsWith(".")) {
+      this.showError("\u8BF7\u8F93\u5165\u6709\u6548\u7684\u6587\u4EF6\u540D\u3002");
+      return;
+    }
+    if (!fileName.toLowerCase().endsWith(`.${this.format}`)) {
+      this.showError(`\u6587\u4EF6\u6269\u5C55\u540D\u5FC5\u987B\u662F .${this.format}\u3002`);
+      return;
+    }
+    const filePath = joinVaultPath(this.selectedFolder, fileName);
+    if (await this.app.vault.adapter.exists(filePath)) {
+      this.showError("\u76EE\u6807\u6587\u4EF6\u5DF2\u5B58\u5728\uFF0C\u8BF7\u66F4\u6362\u6587\u4EF6\u540D\uFF0C\u907F\u514D\u8986\u76D6\u3002");
+      return;
+    }
+    this.finish({ kind: "vault", path: filePath, folder: this.selectedFolder });
+  }
+  showError(message) {
+    this.errorEl.setText(message);
+  }
+  finish(destination) {
+    this.settled = true;
+    this.resolveChoice?.(destination);
+    this.close();
+  }
+};
+function joinVaultPath(folder, name) {
+  return (0, import_obsidian3.normalizePath)(folder && folder !== "/" ? `${folder}/${name}` : name);
+}
+function getNativeSaveDialog() {
+  try {
+    const electron = require("electron");
+    if (electron.remote?.dialog?.showSaveDialog) {
+      return electron.remote.dialog;
+    }
+  } catch {
+  }
+  try {
+    const remote = require("@electron/remote");
+    if (remote.dialog?.showSaveDialog) {
+      return remote.dialog;
+    }
+  } catch {
+  }
+  return null;
 }
 
 // src/utils/formatting.ts
@@ -1121,7 +1460,7 @@ var LINE_HEIGHT_PRESETS = [1.4, 1.5, 1.6, 1.8, 2];
 var IDLE_THRESHOLD_MS = 5e3;
 var MIN_PANEL_WIDTH = 180;
 var MAX_PANEL_WIDTH = 480;
-var WorkbenchView = class extends import_obsidian3.TextFileView {
+var WorkbenchView = class extends import_obsidian4.TextFileView {
   constructor(leaf, plugin) {
     super(leaf);
     this.chapters = [];
@@ -1139,6 +1478,7 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
     this.lastSnapshotCreatedAt = 0;
     this.snapshotSaveInFlight = false;
     this.caretMirrorEl = null;
+    this.exportInProgress = false;
     this.plugin = plugin;
     this.chapterPanelVisible = plugin.settings.showChapterPanel;
     this.statsPanelVisible = plugin.settings.showStatsPanel;
@@ -1192,7 +1532,7 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
       return;
     }
     const file = this.app.vault.getAbstractFileByPath(filePath);
-    if (file instanceof import_obsidian3.TFile) {
+    if (file instanceof import_obsidian4.TFile) {
       this.configureScopeFromFile(file, true);
       this.refreshChapterList();
       await this.openChapter(file);
@@ -1275,12 +1615,12 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
   }
   getInitialFileForOpen() {
     const activeFile = this.app.workspace.getActiveFile();
-    if (activeFile instanceof import_obsidian3.TFile && activeFile.extension === "md") {
+    if (activeFile instanceof import_obsidian4.TFile && activeFile.extension === "md") {
       return activeFile;
     }
     if (this.plugin.settings.rememberLastFile && this.plugin.settings.lastOpenFilePath) {
       const remembered = this.app.vault.getAbstractFileByPath(this.plugin.settings.lastOpenFilePath);
-      if (remembered instanceof import_obsidian3.TFile) {
+      if (remembered instanceof import_obsidian4.TFile) {
         return remembered;
       }
     }
@@ -1414,6 +1754,12 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
       this.applyPanelLayout();
       void this.plugin.saveSettings();
     });
+    this.exportButton = rightGroup.createEl("button", {
+      cls: "clickable-icon wm-icon-button",
+      attr: { type: "button", "aria-label": "\u5BFC\u51FA\u6587\u4EF6", title: "\u5BFC\u51FA\u6587\u4EF6" }
+    });
+    (0, import_obsidian4.setIcon)(this.exportButton, "file-down");
+    this.registerDomEvent(this.exportButton, "click", (event) => this.showExportMenu(event));
     const exitButton = rightGroup.createEl("button", {
       cls: "wm-toolbar-button wm-exit-button",
       text: "\u9000\u51FA",
@@ -1431,7 +1777,7 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
       cls: "clickable-icon",
       attr: { type: "button", "aria-label": "\u65B0\u5EFA\u7AE0\u8282" }
     });
-    (0, import_obsidian3.setIcon)(createButton, "file-plus");
+    (0, import_obsidian4.setIcon)(createButton, "file-plus");
     this.registerDomEvent(createButton, "click", () => {
       void this.createChapterInCurrentDirectory();
     });
@@ -1439,7 +1785,7 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
       cls: "clickable-icon",
       attr: { type: "button", "aria-label": "\u5237\u65B0\u7AE0\u8282\u5217\u8868" }
     });
-    (0, import_obsidian3.setIcon)(refreshButton, "refresh-cw");
+    (0, import_obsidian4.setIcon)(refreshButton, "refresh-cw");
     this.registerDomEvent(refreshButton, "click", () => this.refreshChapterList());
     this.chapterListBodyEl = this.chapterListEl.createDiv({ cls: "wm-chapter-list" });
     this.renderChapterItems();
@@ -1491,7 +1837,7 @@ var WorkbenchView = class extends import_obsidian3.TextFileView {
       attr: { type: "button", "aria-label": label }
     });
     const iconEl = button.createSpan({ cls: "wm-plugin-icon" });
-    (0, import_obsidian3.setIcon)(iconEl, icon);
+    (0, import_obsidian4.setIcon)(iconEl, icon);
     button.createSpan({ cls: "wm-plugin-icon-label", text: label });
     this.registerDomEvent(button, "click", onClick);
   }
@@ -1838,8 +2184,8 @@ ${PARAGRAPH_INDENT}`;
       return;
     }
     const snapshotFile = this.app.vault.getAbstractFileByPath(snapshot.path);
-    if (!(snapshotFile instanceof import_obsidian3.TFile)) {
-      new import_obsidian3.Notice("\u8FD9\u4E2A\u5386\u53F2\u7248\u672C\u6587\u4EF6\u4E0D\u5B58\u5728\u3002\u53EF\u80FD\u5DF2\u88AB\u79FB\u52A8\u6216\u5220\u9664\u3002");
+    if (!(snapshotFile instanceof import_obsidian4.TFile)) {
+      new import_obsidian4.Notice("\u8FD9\u4E2A\u5386\u53F2\u7248\u672C\u6587\u4EF6\u4E0D\u5B58\u5728\u3002\u53EF\u80FD\u5DF2\u88AB\u79FB\u52A8\u6216\u5220\u9664\u3002");
       await this.refreshTimeMachineSnapshots();
       return;
     }
@@ -1859,8 +2205,8 @@ ${PARAGRAPH_INDENT}`;
   }
   async restoreSnapshot(snapshot) {
     const snapshotFile = this.app.vault.getAbstractFileByPath(snapshot.path);
-    if (!(snapshotFile instanceof import_obsidian3.TFile)) {
-      new import_obsidian3.Notice("\u8FD9\u4E2A\u5386\u53F2\u7248\u672C\u6587\u4EF6\u4E0D\u5B58\u5728\u3002\u53EF\u80FD\u5DF2\u88AB\u79FB\u52A8\u6216\u5220\u9664\u3002");
+    if (!(snapshotFile instanceof import_obsidian4.TFile)) {
+      new import_obsidian4.Notice("\u8FD9\u4E2A\u5386\u53F2\u7248\u672C\u6587\u4EF6\u4E0D\u5B58\u5728\u3002\u53EF\u80FD\u5DF2\u88AB\u79FB\u52A8\u6216\u5220\u9664\u3002");
       await this.refreshTimeMachineSnapshots();
       return;
     }
@@ -1870,12 +2216,12 @@ ${PARAGRAPH_INDENT}`;
     this.handleEditorMutation();
     this.lastSnapshotWords = countWritingCharacters(snapshotText);
     this.lastSnapshotCreatedAt = Date.now();
-    new import_obsidian3.Notice("\u5DF2\u6062\u590D\u5230\u6240\u9009\u65F6\u5149\u673A\u7248\u672C\u3002\u6062\u590D\u524D\u7684\u5F53\u524D\u5185\u5BB9\u5DF2\u53E6\u5B58\u4E3A\u5907\u4EFD\u3002");
+    new import_obsidian4.Notice("\u5DF2\u6062\u590D\u5230\u6240\u9009\u65F6\u5149\u673A\u7248\u672C\u3002\u6062\u590D\u524D\u7684\u5F53\u524D\u5185\u5BB9\u5DF2\u53E6\u5B58\u4E3A\u5907\u4EFD\u3002");
     await this.refreshTimeMachineSnapshots();
   }
   async saveManualTimeMachineSnapshot(showNotice = true) {
     if (!this.file) {
-      new import_obsidian3.Notice("\u8BF7\u5148\u6253\u5F00\u4E00\u4E2A Markdown \u7AE0\u8282\u3002");
+      new import_obsidian4.Notice("\u8BF7\u5148\u6253\u5F00\u4E00\u4E2A Markdown \u7AE0\u8282\u3002");
       return;
     }
     const text = this.getCurrentEditorText();
@@ -1883,7 +2229,7 @@ ${PARAGRAPH_INDENT}`;
     this.lastSnapshotWords = snapshot.wordCount;
     this.lastSnapshotCreatedAt = snapshot.createdAt;
     if (showNotice) {
-      new import_obsidian3.Notice("\u5DF2\u4FDD\u5B58\u4E00\u4E2A\u65F6\u5149\u673A\u7248\u672C\u3002");
+      new import_obsidian4.Notice("\u5DF2\u4FDD\u5B58\u4E00\u4E2A\u65F6\u5149\u673A\u7248\u672C\u3002");
     }
     await this.refreshTimeMachineSnapshots();
   }
@@ -1954,7 +2300,7 @@ ${PARAGRAPH_INDENT}`;
       });
       this.registerDomEvent(item, "contextmenu", (event) => {
         event.preventDefault();
-        import_obsidian3.Menu.forEvent(event).addItem((menuItem) => {
+        import_obsidian4.Menu.forEvent(event).addItem((menuItem) => {
           menuItem.setTitle("\u6253\u5F00\u7AE0\u8282").setIcon("file-text").onClick(() => {
             void this.openChapter(file);
           });
@@ -1971,7 +2317,7 @@ ${PARAGRAPH_INDENT}`;
   async createChapterInCurrentDirectory() {
     const folderPath = this.getCurrentChapterCreationFolderPath();
     if (folderPath === null) {
-      new import_obsidian3.Notice("\u8BF7\u5148\u6253\u5F00\u4E00\u4E2A\u7AE0\u8282\uFF0C\u518D\u65B0\u5EFA\u7AE0\u8282\u3002");
+      new import_obsidian4.Notice("\u8BF7\u5148\u6253\u5F00\u4E00\u4E2A\u7AE0\u8282\uFF0C\u518D\u65B0\u5EFA\u7AE0\u8282\u3002");
       return;
     }
     try {
@@ -1982,10 +2328,10 @@ ${PARAGRAPH_INDENT}`;
       this.refreshChapterList();
       await this.openChapter(file);
       this.editorEl.focus();
-      new import_obsidian3.Notice(`\u5DF2\u65B0\u5EFA\u7AE0\u8282\uFF1A${file.basename}`);
+      new import_obsidian4.Notice(`\u5DF2\u65B0\u5EFA\u7AE0\u8282\uFF1A${file.basename}`);
     } catch (error) {
       console.error("Failed to create chapter", error);
-      new import_obsidian3.Notice("\u65B0\u5EFA\u7AE0\u8282\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u5F53\u524D\u76EE\u5F55\u662F\u5426\u53EF\u5199\u3002");
+      new import_obsidian4.Notice("\u65B0\u5EFA\u7AE0\u8282\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u5F53\u524D\u76EE\u5F55\u662F\u5426\u53EF\u5199\u3002");
     }
   }
   getCurrentChapterCreationFolderPath() {
@@ -1997,7 +2343,7 @@ ${PARAGRAPH_INDENT}`;
     }
     if (this.selectedChapterPath) {
       const selectedFile = this.app.vault.getAbstractFileByPath(this.selectedChapterPath);
-      if (selectedFile instanceof import_obsidian3.TFile) {
+      if (selectedFile instanceof import_obsidian4.TFile) {
         return selectedFile.parent?.path ?? "";
       }
     }
@@ -2005,10 +2351,10 @@ ${PARAGRAPH_INDENT}`;
   }
   getUniqueChapterPath(folderPath) {
     const baseName = "\u65B0\u7AE0\u8282";
-    let chapterPath = joinVaultPath(folderPath, `${baseName}.md`);
+    let chapterPath = joinVaultPath2(folderPath, `${baseName}.md`);
     let counter = 2;
     while (this.app.vault.getAbstractFileByPath(chapterPath)) {
-      chapterPath = joinVaultPath(folderPath, `${baseName} ${counter}.md`);
+      chapterPath = joinVaultPath2(folderPath, `${baseName} ${counter}.md`);
       counter += 1;
     }
     return chapterPath;
@@ -2036,7 +2382,7 @@ ${PARAGRAPH_INDENT}`;
       }
       await this.app.fileManager.renameFile(file, newPath);
       const renamedFile = this.app.vault.getAbstractFileByPath(newPath);
-      if (renamedFile instanceof import_obsidian3.TFile) {
+      if (renamedFile instanceof import_obsidian4.TFile) {
         if (renamingActiveFile) {
           this.file = renamedFile;
           this.selectedChapterPath = renamedFile.path;
@@ -2054,15 +2400,15 @@ ${PARAGRAPH_INDENT}`;
       }
       this.refreshChapterList();
       this.updateHeaderState();
-      new import_obsidian3.Notice(`\u5DF2\u91CD\u547D\u540D\u4E3A\uFF1A${baseName}`);
+      new import_obsidian4.Notice(`\u5DF2\u91CD\u547D\u540D\u4E3A\uFF1A${baseName}`);
     } catch (error) {
       console.error("Failed to rename chapter", error);
-      new import_obsidian3.Notice("\u91CD\u547D\u540D\u7AE0\u8282\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u540D\u79F0\u662F\u5426\u6709\u6548\u6216\u76EE\u6807\u6587\u4EF6\u662F\u5426\u5DF2\u5B58\u5728\u3002");
+      new import_obsidian4.Notice("\u91CD\u547D\u540D\u7AE0\u8282\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u540D\u79F0\u662F\u5426\u6709\u6548\u6216\u76EE\u6807\u6587\u4EF6\u662F\u5426\u5DF2\u5B58\u5728\u3002");
       this.refreshChapterList();
     }
   }
   getChapterRenamePath(file, baseName) {
-    return joinVaultPath(file.parent?.path ?? "", `${baseName}.md`);
+    return joinVaultPath2(file.parent?.path ?? "", `${baseName}.md`);
   }
   getChapterRenameError(file, baseName) {
     const invalidNameReason = getInvalidChapterBaseNameReason(baseName);
@@ -2092,7 +2438,7 @@ ${PARAGRAPH_INDENT}`;
         this.file = null;
         this.selectedChapterPath = null;
         const nextExistingFile = nextFile ? this.app.vault.getAbstractFileByPath(nextFile.path) : null;
-        if (nextExistingFile instanceof import_obsidian3.TFile) {
+        if (nextExistingFile instanceof import_obsidian4.TFile) {
           await this.openChapter(nextExistingFile);
         } else {
           this.scopeMode = "folder";
@@ -2102,10 +2448,10 @@ ${PARAGRAPH_INDENT}`;
       } else {
         this.refreshChapterList();
       }
-      new import_obsidian3.Notice(`\u5DF2\u79FB\u81F3\u5E9F\u7EB8\u7BD3\uFF1A${file.basename}`);
+      new import_obsidian4.Notice(`\u5DF2\u79FB\u81F3\u5E9F\u7EB8\u7BD3\uFF1A${file.basename}`);
     } catch (error) {
       console.error("Failed to delete chapter", error);
-      new import_obsidian3.Notice("\u5220\u9664\u7AE0\u8282\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u6587\u4EF6\u662F\u5426\u4ECD\u5B58\u5728\u6216\u662F\u5426\u53EF\u5199\u3002");
+      new import_obsidian4.Notice("\u5220\u9664\u7AE0\u8282\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u6587\u4EF6\u662F\u5426\u4ECD\u5B58\u5728\u6216\u662F\u5426\u53EF\u5199\u3002");
       this.refreshChapterList();
     }
   }
@@ -2190,16 +2536,89 @@ ${PARAGRAPH_INDENT}`;
     this.bodyEl.toggleClass("wm-right-hidden", !this.statsPanelVisible);
     if (this.chapterToggleButton) {
       this.chapterToggleButton.empty();
-      (0, import_obsidian3.setIcon)(this.chapterToggleButton, this.chapterPanelVisible ? "panel-left-close" : "panel-left-open");
+      (0, import_obsidian4.setIcon)(this.chapterToggleButton, this.chapterPanelVisible ? "panel-left-close" : "panel-left-open");
     }
     if (this.statsToggleButton) {
       this.statsToggleButton.empty();
-      (0, import_obsidian3.setIcon)(this.statsToggleButton, this.statsPanelVisible ? "panel-right-close" : "panel-right-open");
+      (0, import_obsidian4.setIcon)(this.statsToggleButton, this.statsPanelVisible ? "panel-right-close" : "panel-right-open");
     }
   }
   updateHeaderState() {
     this.emptyStateEl?.toggleClass("is-hidden", Boolean(this.file));
+    if (this.exportButton) {
+      this.exportButton.disabled = !this.file || this.exportInProgress;
+    }
     this.leaf.setEphemeralState({ file: this.file?.path ?? this.selectedChapterPath ?? null });
+  }
+  showExportMenu(event) {
+    if (!this.file || this.exportInProgress) {
+      return;
+    }
+    const menu = new import_obsidian4.Menu();
+    menu.addItem((item) => item.setTitle("\u5F53\u524D\u7AE0\u8282 \u2192 Word (.docx)").setIcon("file-text").onClick(() => void this.exportDocument("current", "docx")));
+    menu.addItem((item) => item.setTitle("\u5F53\u524D\u7AE0\u8282 \u2192 TXT (.txt)").setIcon("file-text").onClick(() => void this.exportDocument("current", "txt")));
+    if (this.getScopedFiles().length > 1) {
+      menu.addSeparator();
+      menu.addItem((item) => item.setTitle("\u5168\u90E8\u7AE0\u8282 \u2192 Word (.docx)").setIcon("files").onClick(() => void this.exportDocument("all", "docx")));
+      menu.addItem((item) => item.setTitle("\u5168\u90E8\u7AE0\u8282 \u2192 TXT (.txt)").setIcon("files").onClick(() => void this.exportDocument("all", "txt")));
+    }
+    menu.showAtMouseEvent(event);
+  }
+  async exportDocument(scope, format) {
+    const activeFile = this.file;
+    if (!activeFile || this.exportInProgress) {
+      return;
+    }
+    this.exportInProgress = true;
+    this.updateHeaderState();
+    try {
+      const files = scope === "all" ? this.getScopedFiles().sort((left, right) => this.compareFiles(left, right, this.plugin.settings)) : [activeFile];
+      if (files.length === 0) {
+        new import_obsidian4.Notice("\u5F53\u524D\u8303\u56F4\u6CA1\u6709\u53EF\u5BFC\u51FA\u7684\u7AE0\u8282\u3002");
+        return;
+      }
+      const exportFolder = joinVaultPath2(activeFile.parent?.path ?? "", "\u5BFC\u51FA");
+      const folderName = activeFile.parent?.path && activeFile.parent.path !== "/" ? activeFile.parent.name : "\u5168\u90E8\u7AE0\u8282";
+      const baseName = scope === "current" ? activeFile.basename : `${folderName}-\u5408\u96C6`;
+      let fileName = `${baseName}.${format}`;
+      let suffix = 2;
+      while (await this.app.vault.adapter.exists(joinVaultPath2(exportFolder, fileName))) {
+        fileName = `${baseName} ${suffix}.${format}`;
+        suffix += 1;
+      }
+      const destination = await new ExportDestinationModal(this.app, exportFolder, fileName, format).choose();
+      if (!destination) {
+        return;
+      }
+      const chapters = await Promise.all(files.map(async (file) => ({
+        title: file.basename,
+        markdown: file.path === activeFile.path ? this.getCurrentEditorText() : await this.app.vault.read(file)
+      })));
+      const data = format === "docx" ? buildDocxExport(chapters) : new TextEncoder().encode(buildTxtExport(chapters)).buffer;
+      if (destination.kind === "system") {
+        const fs = require("fs");
+        const nodePath = require("path");
+        if (destination.createDefaultFolder) {
+          await fs.promises.mkdir(nodePath.dirname(destination.path), { recursive: true });
+        }
+        await fs.promises.writeFile(destination.path, new Uint8Array(data), { flag: "wx" });
+        new ExportResultModal(this.app, destination.path, true).open();
+      } else {
+        if (destination.folder && destination.folder !== "/" && !await this.app.vault.adapter.exists(destination.folder)) {
+          await this.app.vault.createFolder(destination.folder);
+        }
+        await this.app.vault.createBinary(destination.path, data);
+        const adapterWithFullPath = this.app.vault.adapter;
+        const fullPath = adapterWithFullPath.getFullPath?.(destination.path);
+        new ExportResultModal(this.app, fullPath ?? destination.path, Boolean(fullPath)).open();
+      }
+    } catch (error) {
+      console.error("Failed to export document", error);
+      new import_obsidian4.Notice("\u5BFC\u51FA\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u4FDD\u5B58\u4F4D\u7F6E\u662F\u5426\u53EF\u5199\u3001\u6587\u4EF6\u662F\u5426\u5DF2\u5B58\u5728\uFF0C\u7136\u540E\u91CD\u8BD5\u3002");
+    } finally {
+      this.exportInProgress = false;
+      this.updateHeaderState();
+    }
   }
   renderEmptyEditorState(message) {
     this.emptyStateEl.empty();
@@ -2214,7 +2633,7 @@ ${PARAGRAPH_INDENT}`;
     this.registerEvent(this.app.vault.on("modify", (file) => this.handleVaultRefresh(file)));
   }
   handleVaultRefresh(file) {
-    if (!(file instanceof import_obsidian3.TFile) || file.extension !== "md") {
+    if (!(file instanceof import_obsidian4.TFile) || file.extension !== "md") {
       return;
     }
     if (!this.isFileInCurrentScope(file)) {
@@ -2238,7 +2657,7 @@ ${PARAGRAPH_INDENT}`;
     const markdownFiles = this.app.vault.getMarkdownFiles();
     if (this.scopeMode === "single-file") {
       const file = this.app.vault.getAbstractFileByPath(this.scopeRootPath);
-      return file instanceof import_obsidian3.TFile ? [file] : [];
+      return file instanceof import_obsidian4.TFile ? [file] : [];
     }
     return markdownFiles.filter((file) => file.parent?.path === this.scopeRootPath);
   }
@@ -2320,7 +2739,54 @@ ${PARAGRAPH_INDENT}`;
     return left.path.localeCompare(right.path, void 0, { numeric: true });
   }
 };
-var ChapterRenameModal = class extends import_obsidian3.Modal {
+var ExportResultModal = class extends import_obsidian4.Modal {
+  constructor(app, displayedPath, isAbsolutePath) {
+    super(app);
+    this.displayedPath = displayedPath;
+    this.isAbsolutePath = isAbsolutePath;
+  }
+  onOpen() {
+    this.titleEl.setText("\u5BFC\u51FA\u5B8C\u6210");
+    this.contentEl.empty();
+    this.contentEl.createEl("p", {
+      text: this.isAbsolutePath ? "\u6587\u4EF6\u5B8C\u6574\u5730\u5740\uFF1A" : "\u6587\u4EF6\u5728\u4ED3\u5E93\u4E2D\u7684\u5730\u5740\uFF1A"
+    });
+    const pathEl = this.contentEl.createEl("textarea", {
+      attr: { readonly: "", rows: "3", "aria-label": "\u5BFC\u51FA\u6587\u4EF6\u5730\u5740" }
+    });
+    pathEl.value = this.displayedPath;
+    pathEl.style.width = "100%";
+    pathEl.style.resize = "none";
+    const actions = new import_obsidian4.Setting(this.contentEl);
+    actions.addButton((button) => button.setButtonText("\u590D\u5236\u5730\u5740").setCta().onClick(async () => {
+      try {
+        await navigator.clipboard.writeText(this.displayedPath);
+        new import_obsidian4.Notice("\u5BFC\u51FA\u5730\u5740\u5DF2\u590D\u5236\u3002");
+      } catch (error) {
+        console.error("Failed to copy export path", error);
+        pathEl.focus();
+        pathEl.select();
+        new import_obsidian4.Notice("\u590D\u5236\u5931\u8D25\uFF0C\u5DF2\u9009\u4E2D\u5730\u5740\uFF0C\u8BF7\u624B\u52A8\u590D\u5236\u3002");
+      }
+    }));
+    if (this.isAbsolutePath && import_obsidian4.Platform.isDesktopApp) {
+      actions.addButton((button) => button.setButtonText("\u6253\u5F00\u6240\u5728\u6587\u4EF6\u5939").onClick(() => {
+        try {
+          const electron = require("electron");
+          electron.shell.showItemInFolder(this.displayedPath);
+        } catch (error) {
+          console.error("Failed to reveal exported file", error);
+          new import_obsidian4.Notice("\u65E0\u6CD5\u6253\u5F00\u6587\u4EF6\u5939\uFF0C\u8BF7\u4F7F\u7528\u4E0A\u65B9\u5730\u5740\u67E5\u627E\u6587\u4EF6\u3002");
+        }
+      }));
+    }
+    actions.addButton((button) => button.setButtonText("\u5173\u95ED").onClick(() => this.close()));
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+var ChapterRenameModal = class extends import_obsidian4.Modal {
   constructor(app, file, onSubmit) {
     super(app);
     this.file = file;
@@ -2335,7 +2801,7 @@ var ChapterRenameModal = class extends import_obsidian3.Modal {
     let inputValue = this.file.basename;
     const errorEl = contentEl.createDiv({ cls: "wm-modal-error" });
     errorEl.hide();
-    new import_obsidian3.Setting(contentEl).setName("\u7AE0\u8282\u540D\u79F0").setDesc("\u53EF\u4EE5\u76F4\u63A5\u8F93\u5165\u540D\u79F0\uFF0C\u4E5F\u53EF\u4EE5\u5E26 .md \u540E\u7F00\u3002").addText((text) => {
+    new import_obsidian4.Setting(contentEl).setName("\u7AE0\u8282\u540D\u79F0").setDesc("\u53EF\u4EE5\u76F4\u63A5\u8F93\u5165\u540D\u79F0\uFF0C\u4E5F\u53EF\u4EE5\u5E26 .md \u540E\u7F00\u3002").addText((text) => {
       text.setValue(inputValue);
       text.inputEl.select();
       text.onChange((value) => {
@@ -2367,7 +2833,7 @@ var ChapterRenameModal = class extends import_obsidian3.Modal {
         this.submitting = false;
       }
     };
-    new import_obsidian3.Setting(contentEl).addButton((button) => {
+    new import_obsidian4.Setting(contentEl).addButton((button) => {
       button.setButtonText("\u53D6\u6D88").onClick(() => this.close());
     }).addButton((button) => {
       button.setButtonText("\u91CD\u547D\u540D").setCta().onClick(() => {
@@ -2433,8 +2899,8 @@ function getMarkdownSiblings(currentFile, allMarkdownFiles) {
   const parentPath = currentFile.parent?.path ?? "";
   return allMarkdownFiles.filter((file) => (file.parent?.path ?? "") === parentPath);
 }
-function joinVaultPath(folderPath, fileName) {
-  return (0, import_obsidian3.normalizePath)(folderPath && folderPath !== "/" ? `${folderPath}/${fileName}` : fileName);
+function joinVaultPath2(folderPath, fileName) {
+  return (0, import_obsidian4.normalizePath)(folderPath && folderPath !== "/" ? `${folderPath}/${fileName}` : fileName);
 }
 function normalizeChapterBaseName(input) {
   const trimmed = input.trim();
@@ -2528,7 +2994,7 @@ async function openWorkbenchLeaf(plugin, file) {
   });
   const view = leaf.view;
   if (!(view instanceof WorkbenchView)) {
-    new import_obsidian3.Notice("Unable to open the Watermelon workbench view.");
+    new import_obsidian4.Notice("Unable to open the Watermelon workbench view.");
     return;
   }
   await view.refreshFromSettings();
@@ -2543,7 +3009,7 @@ async function openWorkbenchLeaf(plugin, file) {
 }
 
 // src/main.ts
-var WatermelonWorkbenchPlugin = class extends import_obsidian4.Plugin {
+var WatermelonWorkbenchPlugin = class extends import_obsidian5.Plugin {
   async onload() {
     await this.loadSettings();
     this.registerView(WORKBENCH_VIEW_TYPE, (leaf) => new WorkbenchView(leaf, this));
@@ -2559,7 +3025,7 @@ var WatermelonWorkbenchPlugin = class extends import_obsidian4.Plugin {
       name: "Open current file in writing workbench",
       checkCallback: (checking) => {
         const activeFile = this.app.workspace.getActiveFile();
-        if (!(activeFile instanceof import_obsidian4.TFile) || activeFile.extension !== "md") {
+        if (!(activeFile instanceof import_obsidian5.TFile) || activeFile.extension !== "md") {
           return false;
         }
         if (!checking) {
