@@ -6,6 +6,10 @@
 
 - Synchronized the source-level community review fixes with the published build.
 - Replaced all four flagged direct style assignments in the export UI with Obsidian's recommended `setCssProps()` helper.
+- Replaced unsafe desktop module access with guarded dynamic imports and tightened persisted-settings validation.
+- Updated automatic snapshot cleanup to respect Obsidian's trash preference.
+- Added searchable settings definitions for Obsidian 1.13 and later.
+- Reworked export text sanitization to satisfy community lint checks without changing exported content.
 
 ## 0.1.10
 

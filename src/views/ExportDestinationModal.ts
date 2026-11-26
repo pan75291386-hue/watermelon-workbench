@@ -75,8 +75,7 @@ export class ExportDestinationModal extends Modal {
         dropdown.onChange((folder) => {
           this.selectedFolder = folder;
           if (this.systemPathInput && adapter.getFullPath) {
-            const nodePath = require("path") as typeof import("node:path");
-            const currentName = nodePath.basename(this.systemPathInput.value) || this.defaultFileName;
+            const currentName = basename(this.systemPathInput.value) || this.defaultFileName;
             this.systemPathInput.value = adapter.getFullPath(joinVaultPath(folder, currentName));
           }
           this.showError("");
@@ -139,14 +138,14 @@ export class ExportDestinationModal extends Modal {
   }
 
   private async browseAndSave(): Promise<void> {
-    if (!this.nativeSaveDialog || !this.systemPathInput || this.browsing || this.submitting || this.settled) {
+    if (!Platform.isDesktopApp || !this.nativeSaveDialog || !this.systemPathInput ||
+      this.browsing || this.submitting || this.settled) {
       return;
     }
 
     this.browsing = true;
     try {
-      const nodePath = require("path") as typeof import("node:path");
-      const fs = require("fs") as typeof import("node:fs");
+      const [nodePath, fs] = await Promise.all([import("node:path"), import("node:fs")]);
       const proposedPath = this.systemPathInput.value.trim();
       let existingFolder = nodePath.dirname(proposedPath);
       while (!fs.existsSync(existingFolder)) {
@@ -180,8 +179,11 @@ export class ExportDestinationModal extends Modal {
 
   private async validateAndFinish(): Promise<void> {
     if (this.systemPathInput) {
-      const nodePath = require("path") as typeof import("node:path");
-      const fs = require("fs") as typeof import("node:fs");
+      if (!Platform.isDesktopApp) {
+        this.showError("完整系统地址仅可在桌面端使用。");
+        return;
+      }
+      const [nodePath, fs] = await Promise.all([import("node:path"), import("node:fs")]);
       let filePath = this.systemPathInput.value.trim();
       if (!nodePath.isAbsolute(filePath) || /[\\/]$/.test(filePath)) {
         this.showError("请输入包含文件名的完整绝对地址。");
@@ -251,6 +253,10 @@ export class ExportDestinationModal extends Modal {
 
 function joinVaultPath(folder: string, name: string): string {
   return normalizePath(folder && folder !== "/" ? `${folder}/${name}` : name);
+}
+
+function basename(path: string): string {
+  return path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
 }
 
 function getNativeSaveDialog(): NativeSaveDialog | null {

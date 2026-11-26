@@ -270,7 +270,7 @@ async function pruneOldAutoSnapshots(plugin: WatermelonWorkbenchPlugin, file: TF
 
   const expiredSnapshots = autoSnapshots.slice(MAX_AUTO_SNAPSHOTS_PER_FILE);
   for (const snapshot of expiredSnapshots) {
-    await plugin.app.vault.delete(snapshot);
+    await plugin.app.fileManager.trashFile(snapshot);
   }
 }
 

@@ -1468,8 +1468,10 @@ export class WorkbenchView extends TextFileView {
         : new TextEncoder().encode(buildTxtExport(chapters)).buffer;
 
       if (destination.kind === "system") {
-        const fs = require("fs") as typeof import("node:fs");
-        const nodePath = require("path") as typeof import("node:path");
+        if (!Platform.isDesktopApp) {
+          throw new Error("System file exports are only available on desktop.");
+        }
+        const [fs, nodePath] = await Promise.all([import("node:fs"), import("node:path")]);
         if (destination.createDefaultFolder) {
           await fs.promises.mkdir(nodePath.dirname(destination.path), { recursive: true });
         }

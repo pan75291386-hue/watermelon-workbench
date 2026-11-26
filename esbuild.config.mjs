@@ -19,6 +19,7 @@ const context = await esbuild.context({
     '@codemirror/search',
     '@codemirror/state',
     '@codemirror/view',
+    'node:*',
     ...builtinModules,
   ],
   format: 'cjs',

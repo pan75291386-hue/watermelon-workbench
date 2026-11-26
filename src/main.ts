@@ -60,7 +60,9 @@ export default class WatermelonWorkbenchPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const savedData: unknown = await this.loadData();
+    const savedSettings = isRecord(savedData) ? savedData : {};
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, savedSettings);
   }
 
   async saveSettings(): Promise<void> {
@@ -83,4 +85,8 @@ export default class WatermelonWorkbenchPlugin extends Plugin {
 
     return null;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

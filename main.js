@@ -1,7 +1,9 @@
 "use strict";
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
   for (var name in all)
@@ -15,6 +17,14 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/main.ts
@@ -45,6 +55,97 @@ var WatermelonSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(plugin) {
     super(plugin.app, plugin);
     this.plugin = plugin;
+  }
+  getSettingDefinitions() {
+    return [{
+      type: "group",
+      heading: "Writing workbench",
+      items: [
+        {
+          name: "Manuscript root",
+          desc: "Optional ceiling for novel files. Leave empty to derive scope from the current note.",
+          control: { type: "text", key: "manuscriptRoot", placeholder: "Novels/My Project" }
+        },
+        {
+          name: "Workbench font",
+          desc: "Leave empty to follow Obsidian's text font, or enter an installed local font name.",
+          control: { type: "text", key: "defaultFontFamily", placeholder: "Follow Obsidian or enter a local font" }
+        },
+        {
+          name: "Default font size",
+          control: {
+            type: "dropdown",
+            key: "defaultFontSizePx",
+            options: Object.fromEntries([16, 18, 20, 22, 24, 26, 28, 30].map((size) => [String(size), `${size}px`]))
+          }
+        },
+        {
+          name: "Default line height",
+          control: {
+            type: "dropdown",
+            key: "defaultLineHeight",
+            options: Object.fromEntries([1.4, 1.5, 1.6, 1.8, 2].map((value) => [String(value), `${value}x`]))
+          }
+        },
+        {
+          name: "Show chapter panel by default",
+          control: { type: "toggle", key: "showChapterPanel" }
+        },
+        {
+          name: "Show stats panel by default",
+          control: { type: "toggle", key: "showStatsPanel" }
+        },
+        {
+          name: "Remember last opened chapter",
+          control: { type: "toggle", key: "rememberLastFile" }
+        },
+        {
+          name: "Chapter sort",
+          control: {
+            type: "dropdown",
+            key: "chapterSort",
+            options: { name: "By path / name", modified: "By last modified time" }
+          }
+        }
+      ]
+    }];
+  }
+  getControlValue(key) {
+    if (key === "defaultFontSizePx" || key === "defaultLineHeight") {
+      return String(this.plugin.settings[key]);
+    }
+    return key in this.plugin.settings ? this.plugin.settings[key] : void 0;
+  }
+  async setControlValue(key, value) {
+    switch (key) {
+      case "manuscriptRoot":
+        if (typeof value === "string") this.plugin.settings.manuscriptRoot = normalizeRootInput(value);
+        break;
+      case "defaultFontFamily":
+        if (typeof value === "string") this.plugin.settings.defaultFontFamily = normalizeFontFamilyInput(value);
+        break;
+      case "defaultFontSizePx":
+        if (typeof value === "string" || typeof value === "number") {
+          this.plugin.settings.defaultFontSizePx = Number(value) || DEFAULT_SETTINGS.defaultFontSizePx;
+        }
+        break;
+      case "defaultLineHeight":
+        if (typeof value === "string" || typeof value === "number") {
+          this.plugin.settings.defaultLineHeight = Number(value) || DEFAULT_SETTINGS.defaultLineHeight;
+        }
+        break;
+      case "showChapterPanel":
+      case "showStatsPanel":
+      case "rememberLastFile":
+        if (typeof value === "boolean") this.plugin.settings[key] = value;
+        break;
+      case "chapterSort":
+        if (typeof value === "string") this.plugin.settings.chapterSort = value === "modified" ? "modified" : "name";
+        break;
+      default:
+        return;
+    }
+    await this.plugin.saveSettings();
   }
   display() {
     const { containerEl } = this;
@@ -995,7 +1096,7 @@ async function pruneOldAutoSnapshots(plugin, file) {
   const autoSnapshots = folder.children.filter((child) => child instanceof import_obsidian2.TFile && child.basename.startsWith("auto__") && child.extension === "md").sort((left, right) => right.stat.ctime - left.stat.ctime);
   const expiredSnapshots = autoSnapshots.slice(MAX_AUTO_SNAPSHOTS_PER_FILE);
   for (const snapshot of expiredSnapshots) {
-    await plugin.app.vault.delete(snapshot);
+    await plugin.app.fileManager.trashFile(snapshot);
   }
 }
 async function getUniqueSnapshotPath(plugin, folderPath, kind, createdAt, wordCount) {
@@ -1131,7 +1232,7 @@ function parseChapter(markdown) {
   return lines;
 }
 function plainInline(text) {
-  return text.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/\[\[([^\]]+)\]\]/g, (_match, link) => link.split("|").pop() ?? link).replace(/(\*\*|__)(.*?)\1/g, "$2").replace(/(\*|_)(.*?)\1/g, "$2").replace(/`([^`]+)`/g, "$1").replace(/\\([\\`*_{}\[\]()#+.!>~-])/g, "$1");
+  return text.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/\[\[([^\]]+)\]\]/g, (_match, link) => link.split("|").pop() ?? link).replace(/(\*\*|__)(.*?)\1/g, "$2").replace(/(\*|_)(.*?)\1/g, "$2").replace(/`([^`]+)`/g, "$1").replace(/\\([[\\`*_{}()\]#+.!>~-])/g, "$1");
 }
 function paragraph(text, headingLevel, pageBreak = false) {
   const headingSize = [0, 32, 28, 26, 24, 22, 22][headingLevel] ?? 22;
@@ -1140,7 +1241,14 @@ function paragraph(text, headingLevel, pageBreak = false) {
   return `<w:p>${properties}<w:r>${runProperties}<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`;
 }
 function escapeXml(value) {
-  return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  return removeInvalidXmlCharacters(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+function removeInvalidXmlCharacters(value) {
+  return Array.from(value, (character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    const isDisallowedControl = codePoint <= 31 && codePoint !== 9 && codePoint !== 10 && codePoint !== 13;
+    return isDisallowedControl ? "" : character;
+  }).join("");
 }
 function createZip(files) {
   const encoder = new TextEncoder();
@@ -1246,8 +1354,7 @@ var ExportDestinationModal = class extends import_obsidian3.Modal {
       dropdown.onChange((folder) => {
         this.selectedFolder = folder;
         if (this.systemPathInput && adapter.getFullPath) {
-          const nodePath = require("path");
-          const currentName = nodePath.basename(this.systemPathInput.value) || this.defaultFileName;
+          const currentName = basename(this.systemPathInput.value) || this.defaultFileName;
           this.systemPathInput.value = adapter.getFullPath(joinVaultPath(folder, currentName));
         }
         this.showError("");
@@ -1296,13 +1403,12 @@ var ExportDestinationModal = class extends import_obsidian3.Modal {
     }
   }
   async browseAndSave() {
-    if (!this.nativeSaveDialog || !this.systemPathInput || this.browsing || this.submitting || this.settled) {
+    if (!import_obsidian3.Platform.isDesktopApp || !this.nativeSaveDialog || !this.systemPathInput || this.browsing || this.submitting || this.settled) {
       return;
     }
     this.browsing = true;
     try {
-      const nodePath = require("path");
-      const fs = require("fs");
+      const [nodePath, fs] = await Promise.all([import("node:path"), import("node:fs")]);
       const proposedPath = this.systemPathInput.value.trim();
       let existingFolder = nodePath.dirname(proposedPath);
       while (!fs.existsSync(existingFolder)) {
@@ -1333,8 +1439,11 @@ var ExportDestinationModal = class extends import_obsidian3.Modal {
   }
   async validateAndFinish() {
     if (this.systemPathInput) {
-      const nodePath = require("path");
-      const fs = require("fs");
+      if (!import_obsidian3.Platform.isDesktopApp) {
+        this.showError("\u5B8C\u6574\u7CFB\u7EDF\u5730\u5740\u4EC5\u53EF\u5728\u684C\u9762\u7AEF\u4F7F\u7528\u3002");
+        return;
+      }
+      const [nodePath, fs] = await Promise.all([import("node:path"), import("node:fs")]);
       let filePath2 = this.systemPathInput.value.trim();
       if (!nodePath.isAbsolute(filePath2) || /[\\/]$/.test(filePath2)) {
         this.showError("\u8BF7\u8F93\u5165\u5305\u542B\u6587\u4EF6\u540D\u7684\u5B8C\u6574\u7EDD\u5BF9\u5730\u5740\u3002");
@@ -1395,6 +1504,9 @@ var ExportDestinationModal = class extends import_obsidian3.Modal {
 };
 function joinVaultPath(folder, name) {
   return (0, import_obsidian3.normalizePath)(folder && folder !== "/" ? `${folder}/${name}` : name);
+}
+function basename(path) {
+  return path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
 }
 function getNativeSaveDialog() {
   try {
@@ -2596,8 +2708,10 @@ ${PARAGRAPH_INDENT}`;
       })));
       const data = format === "docx" ? buildDocxExport(chapters) : new TextEncoder().encode(buildTxtExport(chapters)).buffer;
       if (destination.kind === "system") {
-        const fs = require("fs");
-        const nodePath = require("path");
+        if (!import_obsidian4.Platform.isDesktopApp) {
+          throw new Error("System file exports are only available on desktop.");
+        }
+        const [fs, nodePath] = await Promise.all([import("node:fs"), import("node:path")]);
         if (destination.createDefaultFolder) {
           await fs.promises.mkdir(nodePath.dirname(destination.path), { recursive: true });
         }
@@ -3053,7 +3167,9 @@ var WatermelonWorkbenchPlugin = class extends import_obsidian5.Plugin {
     this.addSettingTab(new WatermelonSettingTab(this));
   }
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const savedData = await this.loadData();
+    const savedSettings = isRecord(savedData) ? savedData : {};
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, savedSettings);
   }
   async saveSettings() {
     await this.saveData(this.settings);
@@ -3073,3 +3189,6 @@ var WatermelonWorkbenchPlugin = class extends import_obsidian5.Plugin {
     return null;
   }
 };
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

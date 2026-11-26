@@ -1,4 +1,5 @@
 import { normalizePath, PluginSettingTab, Setting } from "obsidian";
+import type { SettingDefinitionItem } from "obsidian";
 import type WatermelonWorkbenchPlugin from "./main";
 
 export type ChapterSortMode = "name" | "modified";
@@ -39,6 +40,102 @@ export class WatermelonSettingTab extends PluginSettingTab {
   constructor(plugin: WatermelonWorkbenchPlugin) {
     super(plugin.app, plugin);
     this.plugin = plugin;
+  }
+
+  override getSettingDefinitions(): SettingDefinitionItem[] {
+    return [{
+      type: "group",
+      heading: "Writing workbench",
+      items: [
+        {
+          name: "Manuscript root",
+          desc: "Optional ceiling for novel files. Leave empty to derive scope from the current note.",
+          control: { type: "text", key: "manuscriptRoot", placeholder: "Novels/My Project" },
+        },
+        {
+          name: "Workbench font",
+          desc: "Leave empty to follow Obsidian's text font, or enter an installed local font name.",
+          control: { type: "text", key: "defaultFontFamily", placeholder: "Follow Obsidian or enter a local font" },
+        },
+        {
+          name: "Default font size",
+          control: {
+            type: "dropdown",
+            key: "defaultFontSizePx",
+            options: Object.fromEntries([16, 18, 20, 22, 24, 26, 28, 30].map((size) => [String(size), `${size}px`])),
+          },
+        },
+        {
+          name: "Default line height",
+          control: {
+            type: "dropdown",
+            key: "defaultLineHeight",
+            options: Object.fromEntries([1.4, 1.5, 1.6, 1.8, 2].map((value) => [String(value), `${value}x`])),
+          },
+        },
+        {
+          name: "Show chapter panel by default",
+          control: { type: "toggle", key: "showChapterPanel" },
+        },
+        {
+          name: "Show stats panel by default",
+          control: { type: "toggle", key: "showStatsPanel" },
+        },
+        {
+          name: "Remember last opened chapter",
+          control: { type: "toggle", key: "rememberLastFile" },
+        },
+        {
+          name: "Chapter sort",
+          control: {
+            type: "dropdown",
+            key: "chapterSort",
+            options: { name: "By path / name", modified: "By last modified time" },
+          },
+        },
+      ],
+    }];
+  }
+
+  override getControlValue(key: string): unknown {
+    if (key === "defaultFontSizePx" || key === "defaultLineHeight") {
+      return String(this.plugin.settings[key]);
+    }
+    return key in this.plugin.settings
+      ? this.plugin.settings[key as keyof WatermelonSettings]
+      : undefined;
+  }
+
+  override async setControlValue(key: string, value: unknown): Promise<void> {
+    switch (key) {
+      case "manuscriptRoot":
+        if (typeof value === "string") this.plugin.settings.manuscriptRoot = normalizeRootInput(value);
+        break;
+      case "defaultFontFamily":
+        if (typeof value === "string") this.plugin.settings.defaultFontFamily = normalizeFontFamilyInput(value);
+        break;
+      case "defaultFontSizePx":
+        if (typeof value === "string" || typeof value === "number") {
+          this.plugin.settings.defaultFontSizePx = Number(value) || DEFAULT_SETTINGS.defaultFontSizePx;
+        }
+        break;
+      case "defaultLineHeight":
+        if (typeof value === "string" || typeof value === "number") {
+          this.plugin.settings.defaultLineHeight = Number(value) || DEFAULT_SETTINGS.defaultLineHeight;
+        }
+        break;
+      case "showChapterPanel":
+      case "showStatsPanel":
+      case "rememberLastFile":
+        if (typeof value === "boolean") this.plugin.settings[key] = value;
+        break;
+      case "chapterSort":
+        if (typeof value === "string") this.plugin.settings.chapterSort = value === "modified" ? "modified" : "name";
+        break;
+      default:
+        return;
+    }
+    await this.plugin.saveSettings();
   }
 
   override display(): void {
