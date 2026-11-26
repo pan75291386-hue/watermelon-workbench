@@ -1660,10 +1660,10 @@ class ExportResultModal extends Modal {
       text: this.isAbsolutePath ? "文件完整地址：" : "文件在仓库中的地址：",
     });
     const pathEl = this.contentEl.createEl("textarea", {
+      cls: "wm-export-result-path",
       attr: { readonly: "", rows: "3", "aria-label": "导出文件地址" },
     });
     pathEl.value = this.displayedPath;
-    pathEl.setCssProps({ width: "100%", resize: "none" });
 
     const actions = new Setting(this.contentEl);
     actions.addButton((button) => button.setButtonText("复制地址").setCta().onClick(async () => {

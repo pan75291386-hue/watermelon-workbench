@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.12
+
+### Fixed
+
+- Replaced the remaining export-dialog inline styles with CSS classes for Obsidian community review compatibility.
+
 ## 0.1.11
 
 ### Fixed

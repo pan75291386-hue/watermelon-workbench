@@ -89,7 +89,7 @@ export class ExportDestinationModal extends Modal {
       pathSetting.addText((text) => {
         text.setValue(adapter.getFullPath?.(joinVaultPath(this.defaultFolder, this.defaultFileName)) ?? "");
         this.systemPathInput = text.inputEl;
-        text.inputEl.setCssProps({ "min-width": "240px" });
+        text.inputEl.addClass("wm-export-path-input");
       });
       if (this.nativeSaveDialog) {
         pathSetting.addButton((button) => button.setButtonText("浏览并保存…")
@@ -104,8 +104,7 @@ export class ExportDestinationModal extends Modal {
         });
     }
 
-    this.errorEl = this.contentEl.createEl("p");
-    this.errorEl.setCssProps({ color: "var(--text-error)" });
+    this.errorEl = this.contentEl.createEl("p", { cls: "wm-modal-error" });
 
     new Setting(this.contentEl)
       .addButton((button) => button.setButtonText("取消").onClick(() => this.close()))
